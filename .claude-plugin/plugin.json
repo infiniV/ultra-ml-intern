@@ -1,7 +1,7 @@
 {
   "name": "ml-intern",
   "version": "0.2.1",
-  "description": "Claude Code plugin that runs ML fine-tuning jobs on Hugging Face. Researches papers, audits datasets, ships SFT/DPO/LoRA runs. Built on the procedural knowledge from huggingface/ml-intern, wired into Claude Code's native agentic harness.",
+  "description": "ultra-instinct ML engineering intern for Claude Code. Reads papers, audits datasets, ships SFT/DPO/LoRA runs to Hugging Face. Built on the procedural knowledge from huggingface/ml-intern, wired into Claude Code's native agentic harness.",
   "author": {
     "name": "Raahim Arbaz",
     "url": "https://github.com/infiniV"

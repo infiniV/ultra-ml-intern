@@ -1,6 +1,6 @@
 # ultra-ml-intern: ML engineering intern for Claude Code
 
-> Claude Code plugin that runs ML fine-tuning jobs on Hugging Face. Researches papers, audits datasets, ships SFT/DPO/LoRA runs.
+> ultra-instinct ML engineering intern for Claude Code. Reads papers, audits datasets, ships SFT/DPO/LoRA runs to Hugging Face.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-orange)](https://docs.claude.com/en/docs/claude-code/plugins)

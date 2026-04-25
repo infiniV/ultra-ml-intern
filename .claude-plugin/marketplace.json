@@ -7,7 +7,7 @@
     {
       "name": "ml-intern",
       "source": "./",
-      "description": "Claude Code plugin that runs ML fine-tuning jobs on Hugging Face. Researches papers, audits datasets, ships SFT/DPO/LoRA runs. Built on the procedural knowledge from huggingface/ml-intern.",
+      "description": "ultra-instinct ML engineering intern for Claude Code. Reads papers, audits datasets, ships SFT/DPO/LoRA runs to Hugging Face. Built on huggingface/ml-intern.",
       "version": "0.2.1",
       "category": "development"
     }
