@@ -1,0 +1,27 @@
+{
+  "name": "ml-intern",
+  "version": "0.1.0",
+  "description": "Open-source ML engineering intern for Claude Code — researches papers, audits datasets, designs training recipes, and ships HF Jobs runs without losing models. Port of huggingface/ml-intern.",
+  "author": {
+    "name": "Raahim Arbaz",
+    "url": "https://github.com/infiniV"
+  },
+  "homepage": "https://github.com/infiniV/ml-intern",
+  "repository": "https://github.com/infiniV/ml-intern",
+  "license": "MIT",
+  "keywords": [
+    "machine-learning",
+    "huggingface",
+    "fine-tuning",
+    "sft",
+    "dpo",
+    "grpo",
+    "rlhf",
+    "trl",
+    "transformers",
+    "post-training",
+    "ml-engineering",
+    "training-job",
+    "dataset-audit"
+  ]
+}

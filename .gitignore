@@ -1,0 +1,23 @@
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local-only / experiments
+.env
+.env.*
+*.local
+/local/
+/scratch/
+/tmp/
+/.cache/
+
+# Claude Code session artifacts that may end up here during testing
+.claude-flow/
+.claude/
+*.log

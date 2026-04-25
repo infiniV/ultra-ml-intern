@@ -1,0 +1,15 @@
+{
+  "name": "ml-intern",
+  "owner": {
+    "name": "infiniV"
+  },
+  "plugins": [
+    {
+      "name": "ml-intern",
+      "source": "./",
+      "description": "ML engineering intern for the Hugging Face ecosystem — research, dataset audit, training-job design, and Trackio-monitored runs",
+      "version": "0.1.0",
+      "category": "development"
+    }
+  ]
+}

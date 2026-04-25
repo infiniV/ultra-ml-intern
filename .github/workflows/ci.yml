@@ -1,0 +1,90 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shell-lint:
+    name: shellcheck + bash -n
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update -y && sudo apt-get install -y shellcheck
+
+      - name: bash -n syntax check
+        run: |
+          set -e
+          for f in skills/ml-intern/scripts/*.sh; do
+            echo "syntax: $f"
+            bash -n "$f"
+          done
+
+      - name: shellcheck
+        run: |
+          shellcheck -S warning skills/ml-intern/scripts/*.sh
+
+  manifest-validate:
+    name: validate JSON manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate JSON syntax
+        run: |
+          set -e
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json .mcp.json; do
+            echo "validating: $f"
+            python3 -m json.tool "$f" > /dev/null
+          done
+
+      - name: Required plugin.json fields
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          m = json.load(open(".claude-plugin/plugin.json"))
+          required = ["name", "version", "description", "author", "license"]
+          missing = [k for k in required if k not in m]
+          if missing:
+              print(f"plugin.json missing required fields: {missing}", file=sys.stderr)
+              sys.exit(1)
+          assert m["name"] == "ml-intern", "name must be 'ml-intern'"
+          print("plugin.json OK")
+          EOF
+
+      - name: Required marketplace.json fields
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          m = json.load(open(".claude-plugin/marketplace.json"))
+          assert "name" in m and "owner" in m and "plugins" in m, \
+              "marketplace.json missing required top-level fields"
+          assert isinstance(m["plugins"], list) and len(m["plugins"]) >= 1, \
+              "marketplace.json must have at least one plugin"
+          for p in m["plugins"]:
+              assert "name" in p and "source" in p, "each plugin needs name + source"
+          print("marketplace.json OK")
+          EOF
+
+  frontmatter-check:
+    name: skill / command / agent frontmatter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: All commands and agents have description frontmatter
+        run: |
+          set -e
+          fail=0
+          for f in commands/*.md agents/*.md skills/ml-intern/SKILL.md; do
+            if ! head -5 "$f" | grep -qE '^description:|^name:'; then
+              echo "MISSING frontmatter: $f"
+              fail=$((fail+1))
+            fi
+          done
+          if [ "$fail" -gt 0 ]; then exit 1; fi
+          echo "All frontmatter present."
