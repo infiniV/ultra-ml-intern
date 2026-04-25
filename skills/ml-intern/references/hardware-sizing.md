@@ -1,6 +1,8 @@
-# HF Jobs hardware sizing
+# Hardware sizing (HF Jobs + local)
 
-Source: `huggingface/ml-intern/agent/tools/jobs_tool.py:31-58`. These are the exact flavor names HF Jobs accepts.
+For HF Jobs flavor names, see [Flavor table](#flavor-table) below. For local GPU sizing, see [Local hardware](#local-hardware).
+
+Source for HF Jobs flavors: `huggingface/ml-intern/agent/tools/jobs_tool.py:31-58`. The flavor names below are the exact strings HF Jobs accepts.
 
 ## Flavor table
 
@@ -79,3 +81,41 @@ Per-hour rates change — always check https://huggingface.co/pricing. Order of 
 - 8×A100: ~$40/h
 
 A 70B SFT for 24h on 8×A100 is ≈$1000. Make the smoke test pass first.
+
+## Local hardware
+
+If `detect_compute.sh` reports a local GPU, prefer local training when the model fits — see `local-mode.md` for the full procedure.
+
+| Local GPU | VRAM | Full SFT (bf16, ctx=2048) | With QLoRA + grad checkpoint |
+|---|---|---|---|
+| RTX 3060 6GB / 8GB Laptop | 6–8 GB | ≤350M | up to 3B |
+| RTX 3070 / 4070 | 12 GB | ≤500M | up to 7B (tight) |
+| RTX 3080 / 4080 | 16 GB | ≤700M | up to 7B |
+| RTX 3090 / 4090 | 24 GB | up to 1B | up to 7B |
+| 2× RTX 3090 / 4090 | 48 GB | up to 3B | up to 13B |
+| A6000 / 6000 Ada | 48 GB | up to 3B | up to 13B |
+| H100 PCIe / SXM | 80 GB | up to 8B | up to 34B |
+| Apple M1/M2 16GB | ~10 GB usable (MPS) | ≤350M | up to 1B (slow) |
+| Apple M2/M3 Max 96GB | ~64 GB usable (MPS) | up to 7B (slow) | up to 30B (very slow) |
+
+### Local-vs-Jobs decision
+
+| Question | If yes |
+|---|---|
+| Does the model fit my local VRAM? | local |
+| Will the run take >12h? | Jobs (don't tie up your machine) |
+| Do I need multi-GPU and have only one? | Jobs |
+| Am I iterating (3+ runs)? | local (no submission queue) |
+| Is the dataset gated and HF-token-required? | Jobs (HF_TOKEN auto-injected into job env) |
+| Am I billing-blocked on Jobs? | local |
+
+Run `${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/detect_compute.sh` to get an automated recommendation (`local` / `jobs` / `ask_user` / `none`).
+
+### Hybrid pattern (when both available)
+
+Smoke locally → scale on Jobs. Same upstream "sandbox-first" rule, with local as the sandbox:
+
+```
+local: python train.py --max-steps 50      ← catches 95% of bugs in 5 min, free
+Jobs:  hf jobs run --flavor a100-large …   ← only after local smoke passes
+```

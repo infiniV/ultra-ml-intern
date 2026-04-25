@@ -1,5 +1,5 @@
 {
-  "name": "ml-intern",
+  "name": "ultra-ml-intern",
   "owner": {
     "name": "infiniV"
   },
@@ -7,8 +7,8 @@
     {
       "name": "ml-intern",
       "source": "./",
-      "description": "ML engineering intern for the Hugging Face ecosystem — research, dataset audit, training-job design, and Trackio-monitored runs",
-      "version": "0.1.0",
+      "description": "Claude Code plugin that runs ML fine-tuning jobs on Hugging Face. Researches papers, audits datasets, ships SFT/DPO/LoRA runs. Built on the procedural knowledge from huggingface/ml-intern.",
+      "version": "0.2.1",
       "category": "development"
     }
   ]

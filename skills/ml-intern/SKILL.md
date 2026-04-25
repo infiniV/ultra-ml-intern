@@ -35,20 +35,41 @@ Use the `ml-paper-researcher` subagent (see `assets/agents/`) for parallel liter
 | Run code, install deps, submit jobs | `Bash` |
 | Browse arXiv / HF Papers / GitHub | `WebFetch`, `WebSearch` |
 | GitHub code search | `Bash gh search code …` (or `WebFetch`) |
+| Detect local GPU + HF auth | `scripts/detect_compute.sh` |
 | Inspect HF dataset | `scripts/inspect_dataset.sh <dataset_id>` (no MCP needed) |
 | Crawl arXiv | `scripts/crawl_arxiv.sh <query>` |
 | Verify HF Paper metadata | `scripts/hf_paper_meta.sh <arxiv_id>` |
-| Pre-flight a training script | `scripts/preflight_check.sh <path>` |
+| Pre-flight a training script | `scripts/preflight_check.sh <path> [--local]` |
 | Dispatch a literature crawl | `Agent(subagent_type=ml-paper-researcher)` |
 | Dispatch a dataset audit | `Agent(subagent_type=dataset-auditor)` |
+| Train locally | `Bash python train.py` (see `references/local-mode.md`) |
 | Submit training to HF Jobs | `Bash hf jobs run …` (see `references/hf-jobs-cheatsheet.md`) |
-| HF docs semantic search | Optional HF MCP server (see Power-ups) — falls back to `WebFetch` on `huggingface.co/docs` |
+| HF docs semantic search | HF MCP server (active when `HF_TOKEN` is set) |
 
 When a task has 3+ steps, open a `TodoWrite` plan with one task `in_progress` at a time and mark `completed` immediately after each one finishes.
 
+## Compute mode: local vs HF Jobs
+
+**Always run `detect_compute.sh` first for any training task.** Its `compute_mode_recommendation` field gives one of four values:
+
+| Recommendation | Meaning | What to do |
+|---|---|---|
+| `ask_user` | Both local GPU and HF auth available | Ask the user which mode they want — show local GPU specs + estimated cost for Jobs |
+| `local` | Local GPU available, no HF auth | Go local. Don't ask — Jobs would fail anyway |
+| `jobs` | HF auth available, no local GPU | Go Jobs. Show cost confirmation |
+| `none` | Neither available | Stop. Tell the user to either set up HF auth (`hf auth login`) or use a machine with a GPU |
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/detect_compute.sh --human
+```
+
+Even when the recommendation is `local` or `ask_user`, **verify the model fits the available VRAM** (see `references/hardware-sizing.md` → "Local hardware"). If a 7B model doesn't fit a 6GB GPU, default back to Jobs (or QLoRA if the user accepts that scope change — explicitly ask first per the cardinal rule).
+
+For local-mode procedure, env setup, multi-GPU launch, and long-run patterns: `references/local-mode.md`.
+
 ## Required pre-flight before any training/fine-tuning script
 
-Output this checklist, filled in, **before** you call `hf jobs run`:
+Output this checklist, filled in, **before** you call `hf jobs run` OR `python train.py`:
 
 - Reference implementation: [GitHub URL or HF docs URL the script is based on]
 - Dataset format verified: [columns confirmed via `scripts/inspect_dataset.sh`]
@@ -65,6 +86,8 @@ For batch / ablation / sweep jobs: submit **one** job first. Confirm it starts t
 
 ## Hardware sizing (quick table)
 
+**HF Jobs flavors:**
+
 | Model size | Default flavor |
 |---|---|
 | 1–3B params | `a10g-largex2` (48GB GPU) |
@@ -72,9 +95,18 @@ For batch / ablation / sweep jobs: submit **one** job first. Confirm it starts t
 | 30B+ | `l40sx4` or `a100x4` |
 | 70B+ | `a100x8` |
 
-Note: `a10g-small` and `a10g-large` have the **same** 24GB GPU — they differ only in CPU/RAM. Don't pick `a10g-large` thinking it has more VRAM.
+`a10g-small` and `a10g-large` have the **same** 24GB GPU — they differ only in CPU/RAM. Don't pick `a10g-large` thinking it has more VRAM.
 
-Full table + per-method sizing in `references/hardware-sizing.md`.
+**Local GPUs (rough fit, full SFT bf16, ctx=2048):**
+
+| GPU | Comfortably fits |
+|---|---|
+| 6–8 GB (RTX 3060 Laptop) | ≤350M |
+| 24 GB (RTX 3090/4090) | up to 1B (or 7B with QLoRA) |
+| 48 GB (A6000) | up to 3B (or 13B with QLoRA) |
+| 80 GB (A100/H100) | up to 8B (or 34B with QLoRA) |
+
+Full tables (Jobs + local + Apple Silicon) in `references/hardware-sizing.md`. Local-mode procedure in `references/local-mode.md`.
 
 ## Dataset format by training method
 
@@ -194,7 +226,8 @@ Load the relevant file when you hit the matching trigger. Don't pre-load.
 | File | Load when |
 |---|---|
 | `references/workflow.md` | Starting any non-trivial ML task |
-| `references/hardware-sizing.md` | Choosing a `--flavor` for `hf jobs run` |
+| `references/hardware-sizing.md` | Choosing local GPU vs `--flavor` for `hf jobs run` |
+| `references/local-mode.md` | Running training locally instead of on HF Jobs |
 | `references/dataset-formats.md` | Picking a training method or auditing a dataset |
 | `references/common-mistakes.md` | Hit any error during training or job submission |
 | `references/hf-jobs-cheatsheet.md` | Writing or reviewing an `hf jobs run` invocation |

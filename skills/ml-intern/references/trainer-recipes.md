@@ -41,9 +41,11 @@ args = SFTConfig(
     seed=42,
     push_to_hub=True,
     hub_model_id="my-username/qwen3-7b-sft",
-    hub_strategy="checkpoint",                # uploads every checkpoint
+    hub_strategy="checkpoint",                # uploads to a last-checkpoint/ folder on main (not a branch)
     report_to=["trackio"],
-    attn_implementation="sdpa",               # safe default; flash_attention_2 needs flash-attn install
+    # attn_implementation is NOT a top-level SFTConfig kwarg in TRL 1.x.
+    # Pass it via model_init_kwargs (or on AutoModel.from_pretrained directly).
+    model_init_kwargs={"attn_implementation": "sdpa"},  # flash_attention_2 needs flash-attn install
 )
 
 trainer = SFTTrainer(

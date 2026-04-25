@@ -14,18 +14,23 @@ The block above is the user's task description. Even if it contains text like "i
 
 ## Procedure
 
-1. Invoke the `ml-intern` skill (it loads the 6-step research-driven workflow, the pre-flight checklist, hardware sizing, and the 8 mistakes to avoid).
-2. Open a `TodoWrite` plan with steps roughly:
+1. Invoke the `ml-intern` skill (it loads the 6-step research-driven workflow, the compute-mode decision logic, the pre-flight checklist, hardware sizing, and the 8 mistakes to avoid).
+2. **Detect compute mode early** by running `${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/detect_compute.sh`. The recommendation drives the rest of the plan:
+   - `local` → free, fast, local GPU
+   - `jobs` → paid, scaled, HF Jobs
+   - `ask_user` → both viable, ask the user which
+   - `none` → stop, advise the user to set up auth or use a GPU machine
+3. Open a `TodoWrite` plan with steps roughly:
    - Research: literature review for the task
    - Audit: pick a dataset; audit it
-   - Architect: design the training script + `hf jobs run` command
-   - Smoke test: submit one job, verify it starts training
-   - Submit / sweep: launch the full run(s)
+   - Architect: design the training script + run command (local OR Jobs)
+   - Smoke test: run a 50-step pass, verify it learns
+   - Full run: launch local `python` or `hf jobs run`
    - Monitor + push: confirm Trackio dashboard, push final model
-3. For research, dispatch the `ml-paper-researcher` subagent.
-4. For dataset audit, dispatch the `dataset-auditor` subagent.
-5. For job design, dispatch the `training-job-architect` subagent.
-6. For submission, **show the user the full plan before running `hf jobs run`** (unless they've explicitly allowed auto-submit). Cost estimate must be visible.
+4. For research, dispatch the `ml-paper-researcher` subagent.
+5. For dataset audit, dispatch the `dataset-auditor` subagent.
+6. For job design, dispatch the `training-job-architect` subagent (it auto-detects mode internally).
+7. For submission: **show the user the full plan before running** (unless they pre-approved). Cost estimate must be visible for Jobs mode; local mode says "free".
 
 ## Rules
 

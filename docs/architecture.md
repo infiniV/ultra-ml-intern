@@ -102,7 +102,7 @@ This is the pattern used by `infiniV/claude-code-audio-notify` (see its `hooks/h
 
 `superpowers` is the closest reference plugin in scope. Differences:
 
-| | `obra/superpowers` | `infiniV/ml-intern` |
+| | `obra/superpowers` | `infiniV/ultra-ml-intern` |
 |---|---|---|
 | Domain | General software engineering (TDD, debugging, brainstorming) | ML engineering on HF ecosystem |
 | Skill count | 30+ | 1 |
@@ -110,9 +110,3 @@ This is the pattern used by `infiniV/claude-code-audio-notify` (see its `hooks/h
 | MCP server | none | HF MCP via `.mcp.json` |
 | Marketplace | `anthropics/claude-plugins-official` | self-marketplace (this repo) |
 
-## Future work
-
-- Add a `Stop` hook that runtime-detects repeated tool signatures and warns (cheap doom-loop detector)
-- Add a `PreToolUse` hook on `Bash hf jobs run` that runs `preflight_check.sh` automatically and refuses on FAIL
-- Optional `tests/` with smoke tests against real HF endpoints (squad, GRPO paper) — gate on `HF_TOKEN` env in CI
-- If usage grows, submit to `anthropics/claude-plugins-official` for one-line install
