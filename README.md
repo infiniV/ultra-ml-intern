@@ -1,3 +1,5 @@
+![ultra-ml-intern banner](https://raw.githubusercontent.com/infiniV/ultra-ml-intern/main/assets/social-preview.png)
+
 # ultra-ml-intern: ML engineering intern for Claude Code
 
 > ultra-instinct ML engineering intern for Claude Code. Reads papers, audits datasets, ships SFT/DPO/LoRA runs to Hugging Face.
