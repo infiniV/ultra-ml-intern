@@ -1,144 +1,189 @@
 # Paper crawl + citation graph procedure
 
-Replicates `huggingface/ml-intern/agent/tools/papers_tool.py` (citation_graph, read_paper, snippet_search, find_datasets) using only `WebFetch` + `Bash curl` + the arXiv and Semantic Scholar APIs. Free, no API keys required for basic queries.
+Replicates `huggingface/ml-intern/agent/tools/papers_tool.py` (citation_graph, snippet_search, recommend, find_datasets/models/collections) using only `WebFetch` + `Bash curl` + the arXiv, Semantic Scholar, and Hugging Face Papers APIs. Free; no API keys required for basic queries (set `S2_API_KEY` for higher S2 rate limits, free at semanticscholar.org/api).
 
-## When to crawl
+## Start from the literature, not from docs
 
-- User asks "what's the best recipe for X" — find landmark + 3 follow-ups
-- You're picking between two methods — find ablation studies
-- You're stuck on a training problem — find papers that report the same problem and how they fixed it
+Default approach: deep literature crawl. **Don't** start from TRL examples or HF docs and back into a method. Start from papers — papers contain the *results*, and results tell you what actually works. Then back the recipe up with working code.
 
-## The endpoints you'll use
+The crawl pattern:
 
-| Endpoint | Purpose | Auth |
-|---|---|---|
-| `https://api.semanticscholar.org/graph/v1/paper/search` | Title/keyword search | None (rate-limited) |
-| `https://api.semanticscholar.org/graph/v1/paper/arXiv:<id>` | Paper metadata | None |
-| `https://api.semanticscholar.org/graph/v1/paper/arXiv:<id>/citations` | Who cited this paper | None |
-| `https://api.semanticscholar.org/graph/v1/paper/arXiv:<id>/references` | Who this paper cited | None |
-| `https://export.arxiv.org/abs/<id>` | Abstract page | None |
-| `https://arxiv.org/pdf/<id>` | Full PDF | None |
-| `https://huggingface.co/api/papers/<arxiv_id>` | HF Papers metadata + Hub links | None for public, HF_TOKEN for private |
+1. **Find the anchor paper(s)** for the task domain (highest-cited, most recent, or both).
+2. **Crawl the citation graph DOWNSTREAM** — papers that cite the anchor are the ones that built on it, improved it, or applied it to new domains.
+3. **Read methodology sections (3, 4, 5)** of the most promising downstream papers via the ar5iv HTML version. Extract: dataset (name + size + filtering), training method + config (optimizer, lr, schedule, epochs, batch), and the result those choices produced (benchmark scores).
+4. **Attribute results to recipes.** Every finding must link a RESULT to the RECIPE that produced it. *"Dataset X + method Y + lr Z → score W on benchmark V"* is useful. *"They used SFT"* is not.
+5. **Validate datasets** via `inspect_dataset.sh` — verify they exist on HF Hub and the column format matches the training method (SFT needs `messages`/`text`; DPO needs `prompt`/`chosen`/`rejected`; GRPO needs `prompt`).
+6. **Find code** via `gh search code` / TRL examples / paper's official repo, only after the recipe is locked.
+
+## Available scripts
+
+| Script | Purpose |
+|---|---|
+| `crawl_arxiv.sh "query"` | ML-tuned search via HF Papers (default) |
+| `crawl_arxiv.sh "query" --min-cites N --date-from YYYY-MM-DD --field "Computer Science" --sort citationCount` | Filtered search via Semantic Scholar bulk endpoint |
+| `crawl_arxiv.sh --cited-by <id>` | Downstream citers — includes `influential` flag and `intents` (e.g. `["methodology","extension"]`) |
+| `crawl_arxiv.sh --refs <id>` | References (papers this one cited) — same influence/intents fields |
+| `crawl_arxiv.sh --info <id>` | Paper metadata + S2 `tldr` |
+| `snippet_search.sh "<query>"` | **Full-text passage search across 12M+ papers.** Use to find specific claims (e.g. "what learning rate did GRPO follow-ups use?") |
+| `recommend_papers.sh <id>` | S2 recommendations — useful when the citation graph is sparse |
+| `hf_paper_meta.sh <id>` | Paper + linked Hub artifacts (datasets/models/collections) |
+| `hf_paper_meta.sh <id> --datasets` | Linked datasets, sorted by downloads |
+| `hf_paper_meta.sh <id> --models` | Linked models, sorted by downloads |
+| `hf_paper_meta.sh <id> --collections` | Collections featuring the paper |
+| `hf_paper_meta.sh <id> --all` | Combined view (compact) |
+
+## Endpoints under the hood
+
+| Endpoint | Used by |
+|---|---|
+| `huggingface.co/api/papers/search` | unfiltered search (ML-tuned) |
+| `api.semanticscholar.org/graph/v1/paper/search/bulk` | filtered search |
+| `api.semanticscholar.org/graph/v1/paper/arXiv:<id>` | metadata + tldr |
+| `api.semanticscholar.org/graph/v1/paper/arXiv:<id>/citations` | downstream citers |
+| `api.semanticscholar.org/graph/v1/paper/arXiv:<id>/references` | references |
+| `api.semanticscholar.org/graph/v1/snippet/search` | full-text passage search |
+| `api.semanticscholar.org/recommendations/v1/papers/forpaper/arXiv:<id>` | recommendations |
+| `huggingface.co/api/datasets?filter=arxiv:<id>` | linked datasets |
+| `huggingface.co/api/models?filter=arxiv:<id>` | linked models |
+| `huggingface.co/api/collections?paper=<id>` | collections |
+| `ar5iv.labs.arxiv.org/html/<id>` | section-level paper reading via WebFetch |
 
 ## Step 1: Find the landmark
 
-If the user gave a paper, skip to Step 2. Otherwise:
+If the user gave you an arxiv ID, skip to Step 2. Otherwise:
 
 ```bash
-# Semantic Scholar search:
-curl -s "https://api.semanticscholar.org/graph/v1/paper/search?query=group+relative+policy+optimization&limit=10&fields=title,year,citationCount,externalIds" \
-  | jq '.data[] | select(.year >= 2023) | {title, year, cites: .citationCount, arxiv: .externalIds.ArXiv}'
+# Default: ML-tuned HF Papers search
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh "group relative policy optimization"
+
+# Filtered: high-citation, recent, sorted by citation count
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh \
+  "group relative policy optimization" \
+  --min-cites 20 --date-from 2024-01-01 --sort citationCount --limit 5
 ```
 
-Pick the highest-cited paper from the most recent year that matches the topic. That's your landmark.
+Pick the highest-cited recent paper that matches the topic. That's your anchor.
 
-## Step 2: Read the methodology section
+## Step 2: Read the methodology sections
 
-For the landmark, fetch the abstract first to confirm relevance:
+The S2 metadata + `tldr` tells you what they claim:
 
 ```bash
-curl -s "https://export.arxiv.org/abs/2402.03300" | grep -A 20 'class="abstract'
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh --info 2402.03300
 ```
 
-Then fetch the full paper. WebFetch on the arxiv abs page is cheaper than the PDF if the abs page has enough; for full methodology, hit the HTML version (`ar5iv.org`) which is much easier to parse than PDF:
+For the actual recipe, fetch sections 3, 4, 5 from the ar5iv HTML version (much cleaner than PDF):
 
 ```
 https://ar5iv.labs.arxiv.org/html/2402.03300
 ```
 
-Use `WebFetch` with a prompt like:
+Use `WebFetch` with a precise prompt:
 
-> "Extract sections 3 (Method) and 4 (Experiments) of this paper. I need: training objective, loss function, datasets used (with row counts if given), hyperparameters (lr, batch size, training duration, hardware), and the final benchmark numbers reported."
+> "From sections 3 (Method), 4 (Experiments), and 5 (Results) of this paper, extract: training objective and loss; datasets (with row counts and any filtering); hyperparameters (lr, batch, epochs/steps, schedule, optimizer); hardware and training duration; final benchmark numbers reported. Quote exact numbers; do not paraphrase."
 
-## Step 3: Crawl the citation graph
+Don't read the abstract only — abstracts lie by omission.
 
-Find papers that cite the landmark — they're likely the SOTA improvements.
+## Step 3: Crawl the citation graph DOWNSTREAM
 
 ```bash
-curl -s "https://api.semanticscholar.org/graph/v1/paper/arXiv:2402.03300/citations?fields=title,year,citationCount,abstract,externalIds&limit=50" \
-  | jq '.data[].citingPaper | select(.year >= 2024) | select(.citationCount >= 5) | {title, year, cites: .citationCount, arxiv: .externalIds.ArXiv}'
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh --cited-by 2402.03300 --limit 30
 ```
 
-Filter aggressively:
-- `year >= <last_year>` (recent)
-- `citationCount >= 5` (gained traction)
+Output now includes `influential` (S2's "isInfluential" flag — paper materially uses the cited work) and `intents` (e.g. `["methodology", "extension"]`). Filter aggressively:
+
+- `year >= last 18 months` — ML moves fast
+- `citationCount >= 5` — gained traction
+- `influential == true` — built directly on the anchor
 - Title keywords match the task
 
-Top 5 results are your follow-up candidates.
+Top 5 are your follow-up candidates.
 
-## Step 4: Crawl 2 levels deep (when needed)
+## Step 4: Hunt specific claims with snippet_search
 
-For state-of-the-art questions, repeat Step 3 on each follow-up. Stop when:
-
-- You've found a paper with strong benchmark numbers and a public dataset/recipe
-- You hit ~10 papers (any more and the marginal value drops)
-- The task is a known-recent topic and follow-ups don't exist yet
-
-## Step 5: Cross-reference HF Papers
-
-HF Papers (https://huggingface.co/papers) curates papers with linked Hub artifacts (models + datasets + Spaces).
+When you need to know whether a specific approach has been tried (or what learning rate / dataset / loss someone used), search the *full text* of 12M+ papers:
 
 ```bash
-curl -s "https://huggingface.co/api/papers/2402.03300" | jq '{title, summary, models: [.models[]?.id], datasets: [.datasets[]?.id]}'
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/snippet_search.sh \
+  "GRPO learning rate schedule for math reasoning" --limit 5
+
+# Filtered — recent CS papers with traction:
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/snippet_search.sh \
+  "GRPO group size ablation" \
+  --field "Computer Science" --min-cites 10 --date-from 2024-06-01
 ```
 
-If a paper has linked Hub models/datasets, those are your starting points for implementation — they're known to work with current TRL.
+This is the killer move when the citation graph is too noisy or you need a specific quantitative claim. Returns paper passages, not just titles.
 
-## Step 6: Find working code examples
+> The S2 `/snippet/search` endpoint throttles aggressively for anonymous calls. If you see `HTTP 429`, set `S2_API_KEY`.
 
-Once you have the recipe, find a current implementation:
+## Step 5: Fill graph gaps with recommendations
+
+When the anchor is recent and the citation graph is sparse:
 
 ```bash
-# Search GitHub for code that uses the trainer:
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/recommend_papers.sh 2402.03300 --limit 10
+```
+
+Catches related work that hasn't yet cited each other — useful for niche topics.
+
+## Step 6: Cross-reference HF Papers for Hub artifacts
+
+Linked Hub models/datasets are gold — they're known to work with current TRL.
+
+```bash
+# Compact: paper + ids of linked artifacts
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/hf_paper_meta.sh 2402.03300
+
+# Sorted by downloads — pick the most-used variant:
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/hf_paper_meta.sh 2402.03300 --models
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/hf_paper_meta.sh 2402.03300 --datasets
+
+# Everything in one object:
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/hf_paper_meta.sh 2402.03300 --all
+```
+
+## Step 7: Validate and find working code
+
+Validate the dataset matches your training method:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/inspect_dataset.sh <org/dataset> --split train --rows 3
+```
+
+Then find a current implementation:
+
+```bash
 gh search code --language=python "GRPOTrainer" --limit=10
-
-# Or search TRL examples directly:
 gh api repos/huggingface/trl/contents/examples/scripts --jq '.[] | .path' | grep -i grpo
-
-# Or look at the paper's official repo (often linked in HF Papers):
-gh search repos --owner=deepseek-ai grpo  # or whatever
 ```
 
-## Output format
+## When to stop crawling
 
-When the crawl is done, report back:
-
-```
-Landmark: GRPO (DeepSeek-Math, arxiv:2402.03300, 1247 cites)
-URL: https://huggingface.co/papers/2402.03300
-
-Recipe (§3.1, §4.2):
-  - Base: SFT-tuned DeepSeek-Math-7B
-  - Dataset: 12.5k MATH train problems
-  - Group size: 64
-  - LR: 1e-6
-  - KL coef: 0.04
-  - Reward: rule-based correctness
-  - Hardware: 64×A100 80GB, 144h
-
-Follow-ups (cited GRPO, ≥10 cites, 2024+):
-  1. DeepSeek-V2 (arxiv:2405.04434) — scaled GRPO to MoE
-  2. <next>
-  3. <next>
-
-Working examples:
-  - https://github.com/huggingface/trl/blob/main/examples/scripts/grpo.py
-  - https://huggingface.co/blog/<post>
-```
+- You have a paper with strong benchmark numbers, a verified-on-Hub dataset, and a working code example for the trainer
+- You've hit ~10 papers (marginal value drops fast after this)
+- 2 levels deep maximum on the citation graph
 
 ## Subagent vs inline
 
 Use the `ml-paper-researcher` subagent when:
+
 - Crawl will produce >5k tokens of paper content
 - Reading 5+ papers' methodology sections
 - 2+ levels of citation graph
 
 Inline when:
+
 - You already have the arxiv ID and just need methodology
 - One paper, ~1k tokens of summary needed
 
+## Output format
+
+Always report results as recipes attributed to papers — see `ml-paper-researcher.md` for the exact format.
+
 ## Rate limits
 
-Semantic Scholar is generous (~100 req/min for unauthenticated) but enforces it. If you hit a 429, wait 60 seconds. For heavy use, get a free API key at https://www.semanticscholar.org/product/api.
-
-arXiv has no formal rate limit but be polite — `time.sleep(1)` between fetches is a good practice in scripts.
+- **HF Papers / Hub APIs**: very generous, no auth needed for public papers
+- **Semantic Scholar `/graph/v1/*`**: ~100 req/min unauth'd; set `S2_API_KEY` for 1 req/s search + 10 req/s otherwise
+- **Semantic Scholar `/snippet/search`**: hard-throttled for anonymous calls — `S2_API_KEY` is effectively required
+- **arXiv / ar5iv**: no formal rate limit; be polite with `sleep 1` between fetches in scripts

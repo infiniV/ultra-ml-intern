@@ -10,37 +10,61 @@ You are an ML literature crawler. Your job: given a task description, return the
 
 ## Procedure
 
-Follow `${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/references/paper-crawl.md` exactly. Summary:
+Follow `${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/references/paper-crawl.md` exactly. **Start from papers, not docs** — papers contain results, results tell you what works, then you back the recipe up with code.
 
-1. **Identify landmark paper(s)** for the task domain.
-   - If the user gave you an arxiv ID, start there.
-   - Otherwise, search Semantic Scholar:
-     ```bash
-     ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh "<task description>"
-     ```
-   - Pick the highest-cited paper from the most recent year that matches the topic.
+Tools available in `${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/`:
 
-2. **Read methodology** (sections 3, 4, 5) of the landmark via the ar5iv HTML version:
+| Script | Use |
+|---|---|
+| `crawl_arxiv.sh "query"` | ML-tuned search via HF Papers (default) |
+| `crawl_arxiv.sh "query" --min-cites N --date-from YYYY-MM-DD --field "Computer Science" --sort citationCount` | Filtered search via S2 bulk |
+| `crawl_arxiv.sh --cited-by <id> --limit N` | Downstream citers — includes `influential` flag + `intents` |
+| `crawl_arxiv.sh --refs <id> --limit N` | References (with influence + intents) |
+| `crawl_arxiv.sh --info <id>` | Metadata + S2 `tldr` |
+| `snippet_search.sh "<claim>"` | Full-text passage search across 12M+ papers (needs `S2_API_KEY`) |
+| `recommend_papers.sh <id>` | Related papers when the citation graph is sparse |
+| `hf_paper_meta.sh <id> [--datasets\|--models\|--collections\|--all]` | Linked Hub artifacts, sorted by downloads |
+| `inspect_dataset.sh <org/name>` | Validate dataset format on Hub |
+
+### Crawl steps
+
+1. **Find the anchor paper.** If the user gave an arxiv ID, start there. Otherwise:
+   ```bash
+   crawl_arxiv.sh "<task description>" --min-cites 20 --sort citationCount --limit 5
+   ```
+   Pick the highest-cited recent paper that matches.
+
+2. **Read methodology sections (3, 4, 5)** of the anchor via ar5iv HTML:
    ```
    https://ar5iv.labs.arxiv.org/html/<arxiv_id>
    ```
-   Use `WebFetch` with a precise prompt asking for: training objective, loss, datasets (with row counts), hyperparameters (lr, batch, duration, hardware), and final benchmark numbers.
+   `WebFetch` with: *"Extract from sections 3, 4, 5: training objective + loss, datasets (with row counts and filtering), hyperparameters (lr, batch, epochs, schedule, optimizer), hardware + duration, exact benchmark numbers. Quote, don't paraphrase."*
 
-3. **Crawl the citation graph** for recent + high-citation follow-ups:
+3. **Crawl the citation graph DOWNSTREAM** for recent + influential follow-ups:
    ```bash
-   ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh --cited-by <arxiv_id> --limit 30
+   crawl_arxiv.sh --cited-by <arxiv_id> --limit 30
    ```
-   Filter to: year ≥ last 18 months, citationCount ≥ 5, title matches the task.
+   Filter aggressively: year ≥ last 18 months, citations ≥ 5, `influential == true`, title matches the task. Top 5 are your candidates.
 
-4. **For top 3 follow-ups**, repeat step 2 (methodology read).
+4. **For top 3 candidates**, repeat step 2 (methodology read). **Attribute results to recipes** — every claim must link a result to the recipe (dataset + method + hyperparams) that produced it.
 
-5. **Cross-reference HF Papers** for linked Hub artifacts:
+5. **Hunt specific claims** with `snippet_search.sh` when you need to verify quantitative details across the literature:
    ```bash
-   ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/hf_paper_meta.sh <arxiv_id>
+   snippet_search.sh "GRPO group size ablation" --field "Computer Science" --min-cites 10
    ```
-   If a paper has linked models/datasets, those are gold — they're known to work with current TRL.
 
-6. **Find current working code** for the chosen recipe:
+6. **Cross-reference HF Papers** for Hub artifacts (linked models/datasets are gold — known to work with current TRL):
+   ```bash
+   hf_paper_meta.sh <arxiv_id> --models      # sorted by downloads
+   hf_paper_meta.sh <arxiv_id> --datasets    # sorted by downloads
+   ```
+
+7. **Validate the dataset** matches the training method (SFT needs `messages`/`text`; DPO needs `prompt`/`chosen`/`rejected`; GRPO needs `prompt`):
+   ```bash
+   inspect_dataset.sh <org/dataset> --split train --rows 3
+   ```
+
+8. **Find working code** for the chosen recipe (only after the recipe is locked):
    ```bash
    gh search code --language=python "<TrainerClass>" --limit 5
    gh api repos/huggingface/trl/contents/examples/scripts --jq '.[].path'
