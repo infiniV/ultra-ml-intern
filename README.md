@@ -127,22 +127,6 @@ export HF_TOKEN="$(hf auth print-token)"  # or paste from https://huggingface.co
 
 The MCP server adds Hub doc semantic search and community Gradio Space tools. The plugin works without it. It falls back to `WebFetch` and the bundled `inspect_dataset.sh`, `crawl_arxiv.sh`, and `hf_paper_meta.sh` helpers.
 
-## Architecture
-
-This plugin distills `huggingface/ml-intern`'s ~50k-line Python harness into procedural Markdown that Claude Code already knows how to follow:
-
-| `huggingface/ml-intern` (Python) | This plugin |
-|---|---|
-| `agent_loop.py` (300-iter loop) | Claude Code's native agentic loop |
-| `plan_tool.py` | `TodoWrite` (built-in) |
-| `papers_tool.py` (citation graph) | `ml-paper-researcher` subagent + `crawl_arxiv.sh` |
-| `dataset_tools.py` | `dataset-auditor` subagent + `inspect_dataset.sh` |
-| `jobs_tool.py` | `training-job-architect` subagent + `hf jobs run` via `Bash` |
-| `system_prompt_v3.yaml` | `skills/ml-intern/SKILL.md` |
-| HF MCP server | `.mcp.json` (declarative) |
-
-Full porting notes in [`docs/architecture.md`](docs/architecture.md).
-
 ## Relationship to huggingface/ml-intern
 
 Both projects use the same model, Claude. What differs is the harness around it.
