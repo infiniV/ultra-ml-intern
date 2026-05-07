@@ -2,6 +2,28 @@
 
 All notable changes to this plugin are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-05-07
+
+### Added — deep literature crawl
+
+- **`/ml-research-ultra` slash command** — driven by the main agent across 7 phases: 6–10 query-angle fan-out, 15–25 paper seed-set, 2-hop citation-graph BFS, score-and-select, parallel paper reads (waves of 5–10 subagents), cross-paper synthesis, hallucination scrub. Designed for surveys, gap-finding, and proposal-grade citation coverage — not for "give me a recipe to start training", which is still `/ml-research`'s job.
+- **`ml-paper-reader` subagent** — single-paper deep reader. Reads abstract + §method + §experiments + §results + §limitations + §future-work of one paper via ar5iv HTML and returns a ≤ 1000-word structured digest where every factual line outside `Relevance to topic` is a verbatim quote with a `(§x.y)` section reference. Each invocation isolates 50k+ tokens of paper HTML from the main thread, which is what makes 30–50 full-paper reads fit in a 200k context window.
+- **`skills/ml-intern/references/ultra-research.md`** — methodology reference: `seed_score` and `read_score` formulas, BFS heuristics with 429 mitigation, six synthesis lenses (recipe consensus, recipe contradictions, gaps in the matrix, open problems, shared limitations, Hub artifact health), the anti-hallucination scrub protocol, and a token-budget table showing where the ~3M tokens of paper HTML stay (in subagents, not main thread).
+
+### Why
+
+Upstream `huggingface/ml-intern/agent/tools/papers_tool.py` exposes `citation_graph` as a single-hop, single-paper call. Their separate `research_tool.py` wraps a single research subagent (60 iterations, 200k context budget, downgrades to Sonnet for cost). Both push full paper text into the calling agent's context, which forces shallow reads to stay under budget. `/ml-research-ultra` uses *per-paper* subagent isolation to invert that constraint: paper HTML lives only inside paper-reader subagents, while the main thread sees only ~80k tokens of digests across 30–50 papers. The extra capacity is spent on synthesis (cross-paper matrix, gap analysis) — the part you can't get by reading one paper carefully.
+
+### Helper scripts added
+
+- **`scripts/research_slug.sh`** — safe filename slug from a topic string. Lowercase, `[a-z0-9-]` only, ≤ 40 chars, falls back to `topic` for empty input. Tested against shell-injection input. Used by Phase 8 of `/ml-research-ultra`.
+- **`scripts/merge_papers.sh`** — dedupe + overlap-count JSONL paper records from multiple `crawl_arxiv.sh` runs. Group-by `arxiv` field, attach `overlap_count`, sort by overlap desc then citations desc. Flags: `--min-overlap N`, `--top N`, `--ids-only`. Used by Phases 2 and 3 to surface "hub" papers (those that appear ≥3 times across BFS expansion).
+- **`scripts/download_paper.sh`** — fetch arXiv PDF and/or ar5iv HTML to a local archive dir. Strict arxiv-id grammar (rejects path-traversal and shell metacharacters), skip-if-exists caching, stdin batch, `--format pdf|html|both`, `--dir`, `--batch <file>`. Used by the optional Phase 5 archive flow when the user opts in during Phase 0.
+
+### Upstream-tool parity table
+
+`skills/ml-intern/references/ultra-research.md` now includes a parity table mapping every operation in `huggingface/ml-intern/agent/tools/` to its local equivalent (or to a built-in Claude Code tool / the HF MCP server). Closes the question of "are we missing any upstream capability" — net answer: every operation needed by the ultra-research workflow is reachable, with `_op_trending` the only missing wrapper (rarely used; falls back to direct `/api/daily_papers` curl if needed).
+
 ## [0.2.1] - 2026-04-25
 
 ### Fixed (smoke-test feedback)
