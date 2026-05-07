@@ -56,12 +56,13 @@ In your head (no tool calls):
 2. Generate **6–10 search-angle reformulations** — literal phrasing, technical phrasing, synonym swaps, contrarian angle, follow-up-of-X, dataset-centric. List them.
 3. Write a **1–3 sentence topic context** that you will pass verbatim to every paper-reader subagent. Keep it stable across the run — reproducibility matters.
 
-Surface the angle list and topic-context to the user in 5–8 lines and ask **two** questions before proceeding. The user may add or veto angles. Do not skip this confirmation — Ultra spends real wall-clock and rate-limit budget.
+Surface the angle list and topic-context to the user in 5–8 lines and ask **three** questions before proceeding. Use `AskUserQuestion` so they arrive as a single batched prompt, not three sequential ones. The user may add or veto angles. Do not skip this confirmation — Ultra spends real wall-clock and rate-limit budget.
 
 1. "Proceed with these <N> angles?" — yes / edit / abort
 2. "Save papers to a local archive (`./papers/<arxiv>.{pdf,html}`)? Useful for offline review or audit." — `no` (default) / `pdf` / `html` / `both`
+3. "Which model should the paper-reader subagents use?" — `sonnet` (Sonnet 4.6, **recommended** — fast, cheap, sufficient for structured digest extraction) / `opus` (Opus 4.7 — max quality, ~5× cost, use for proposal/paper-grade output) / `haiku` (Haiku 4.5 — budget, only for well-trodden topics where you trust the consensus)
 
-Record the archive choice. It controls Phase 5 behavior.
+Record both the archive choice (controls Phase 5 archive behavior) **and** the reader-model choice (passed as `model:` on every Phase 5 `Agent` dispatch). The orchestrator — you — keeps its own model regardless; only the leaf readers switch.
 
 ### Phase 1 — Discovery fan-out
 
@@ -137,13 +138,15 @@ Skip this step if archive choice was `no`. The reader subagents do NOT use the l
 
 For each paper in the read list, dispatch **one** `ml-paper-reader` subagent. Batch into **waves of 5–10** subagents per message. Wait for each wave to complete before launching the next — running 30+ readers concurrently will throttle ar5iv and S2.
 
+Each `Agent` call must specify both `subagent_type: "ml-paper-reader"` **and** `model: "<reader_model_from_phase_0>"` (one of `sonnet` / `opus` / `haiku`). Without an explicit `model`, readers inherit the orchestrator's model and the user's cost choice silently disappears.
+
 The prompt to each reader has exactly three parts:
 
 1. **Arxiv ID:** `<id>`
 2. **Topic context:** `<the 1–3 sentence context from Phase 0, verbatim>`
 3. **Specific questions** (optional, only if Phase 4 flagged a gap this paper might close): 1–2 questions. Otherwise omit.
 
-Do NOT pass other papers' content to a reader. Each reader is a single-paper specialist.
+Do NOT pass other papers' content to a reader. Each reader is a single-paper specialist — this is the `superpowers:dispatching-parallel-agents` pattern applied at scale: one focused agent per independent problem domain, narrow scope, fixed output shape, all running in parallel waves.
 
 While a wave is in-flight, do nothing in the main thread — the API is the bottleneck, not your reasoning.
 

@@ -170,6 +170,8 @@ Dispatch the `ml-paper-reader` subagent **once per paper**, in **waves of 5–10
 - A 1–3 sentence topic context (THE SAME context for every reader — reproducibility matters here)
 - Optionally 1–2 specific questions if Phase 4 flagged the paper as answering a known gap
 
+**Model selection.** The Phase 0 question 3 captured a model choice — pass it as `model: "<choice>"` on every `Agent` dispatch (`sonnet` / `opus` / `haiku`). Readers do structured digest extraction with a fixed output schema, so Sonnet 4.6 is the right default; Opus is a ~5× cost premium for marginal quality on this kind of work and only worth it for proposal/paper-grade output. The orchestrator (this main thread) keeps its own model regardless — only the leaf readers switch. The pattern follows `superpowers:dispatching-parallel-agents`: focused scope, identical output contract, dispatched in parallel.
+
 Each reader returns the digest format defined in `agents/ml-paper-reader.md`. **Don't re-prompt readers** that come back with `Confidence: LOW` — that's a real data point about what the literature does and doesn't say.
 
 While waves are running, you can do nothing useful in the main thread — wait, then aggregate.
