@@ -21,3 +21,7 @@ Thumbs.db
 .claude-flow/
 .claude/
 *.log
+
+# Python bytecode
+__pycache__/
+*.pyc
