@@ -57,6 +57,13 @@ The skill activates automatically and walks the [6-step research-driven workflow
 | "preflight train.py" | Catches missing `push_to_hub`, default 30m timeout, bf16 on T4, missing flash-attn install, before you spend cluster hours |
 | "submit hf jobs run" | Walks pre-flight → cost estimate → smoke test → full submission → Trackio dashboard URL |
 
+## Skills
+
+| Skill | What it does |
+|---|---|
+| `ml-intern` | The end-to-end ML workflow: find landmark papers, crawl the citation graph, extract the recipe, audit the dataset and base model on Hub, write a TRL-grounded training script, pre-flight, smoke-test, and ship a full `hf jobs run` with Trackio monitoring. Activates whenever you ask to fine-tune, train, evaluate, or audit a model. |
+| `model-provenance` | Given a specific model (DINOv3, SAM 2, Whisper, Qwen2-VL…), finds and verifies the *canonical* repo over forks and lookalikes, clones it, extracts the real train/model/inference files, downloads the paper PDFs with metadata, writes a synthesis report, and archives everything to `research/models/<slug>/`. Registers a mandatory-read memory so future coding against that model is grounded in its actual source, not training-time recall. Cloned code is archived, never executed. |
+
 ## Commands
 
 | Command | What it does |
