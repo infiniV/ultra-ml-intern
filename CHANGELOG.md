@@ -2,6 +2,19 @@
 
 All notable changes to this plugin are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-06-09
+
+### Added — model-provenance skill
+
+- **`model-provenance` skill** — given a specific model (e.g. DINOv3, SAM 2, Whisper), finds the *canonical* training/inference code and papers, verifies which repo is official (not a fork or lookalike), and archives everything to `research/models/<slug>/`: full clones in `code/`, extracted train/model/inference files in `key_code/`, paper PDFs + metadata sidecars in `papers/`, a provenance ledger in `SOURCES.md`, and a synthesis report in `notes.md`. Cloned code is archived, never executed.
+- **`scripts/fetch_paper.py`** — resolves an arXiv id, `/abs/` or `/pdf/` URL, or direct PDF URL to a local PDF plus a `*.metadata.json` sidecar (title, authors, abstract, categories, bibtex) via the public arXiv API. No key required.
+- **`scripts/extract_key_code.py`** — heuristically locates and copies the high-signal files from a cloned repo (training loop, model definition, inference/predict entrypoints, loss, dataset, config) by filename and content signal, into a flat `key_code/` tree with a categorized `MANIFEST.md`.
+- **`references/discovery.md`** — search fan-out (web, GitHub, Hugging Face, arXiv, Papers-with-Code) and a weighted canonical-repo verification rubric, plus common traps (name collisions, abandoned mirrors, weights-only HF repos, version drift).
+
+### Why
+
+The `ml-intern` skill's core principle is "ground every decision in current code and papers, not training-time memory." `model-provenance` makes that durable for a specific model: it builds a local source-of-truth archive and registers a mandatory-read memory so future coding against that model reads the real implementation instead of a plausible-but-possibly-wrong recollection of its API and training recipe.
+
 ## [0.3.0] - 2026-05-07
 
 ### Added — deep literature crawl

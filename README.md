@@ -26,7 +26,7 @@ Restart Claude Code, then verify with `/plugin` and `/agents`. The slash command
 
 What you get:
 
-- 1 skill: `ml-intern` (the workflow)
+- 2 skills: `ml-intern` (the workflow) and `model-provenance` (archive a model's real code + papers locally)
 - 6 slash commands: `/ml-intern`, `/ml-research`, `/ml-research-ultra`, `/ml-audit`, `/ml-preflight`, `/ml-train`
 - 4 subagents: `ml-paper-researcher`, `ml-paper-reader`, `dataset-auditor`, `training-job-architect`
 - 1 MCP server: Hugging Face (activates when `HF_TOKEN` is set)
