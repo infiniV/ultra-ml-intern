@@ -2,6 +2,31 @@
 
 All notable changes to this plugin are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-06-10
+
+### Changed — model-provenance archive location & idempotency
+
+- **Archive is now global, not per-project.** Output root moved from `research/models/<slug>/` under the current working dir to a fixed machine-wide `~/.claude/model-provenance/<slug>/`. The skill no longer asks for or accepts a per-project path — the registered mandatory-read memory points every project at this one absolute path, so a single shared source-of-truth is the point. All workflow commands now use a `ROOT=~/.claude/model-provenance/<slug>` base.
+- **Idempotent re-runs.** New step 0 checks for an existing archive and reports/verifies instead of redoing work; clone (step 3), key-code extraction (step 4), and paper download (step 5) each skip artifacts already present and valid; the memory step updates in place rather than duplicating. Explicit refresh = delete the relevant subdir first.
+
+### Fixed — model-provenance skill
+
+- `scripts/extract_key_code.py` — three capture bugs found via fixture testing:
+  (a) the `examples/notebooks` skip entry never matched (skip check compares single path components) — replaced with a `SKIP_PREFIXES` path-prefix check plus a bare `notebooks` dir entry; (b) a content-signal match from an earlier category could beat a filename match from a later one, so a Lightning-style `model.py` containing `optimizer.step()` was filed under `train` — categorization is now two-pass, filename matches across all categories first; (c) files *inside* a `configs/` directory (the dominant real-repo layout, e.g. `configs/vitl16.yaml`) were never captured because the config pattern only matched files literally named `config.*`.
+- `scripts/extract_key_code.py` — added `transcribe` to the inference filename pattern (Whisper's main entrypoint `whisper/transcribe.py` was missed in integration testing).
+- `scripts/fetch_paper.py` and `references/discovery.md` — arXiv API over HTTPS instead of HTTP.
+- `references/discovery.md` — **Papers with Code is dead** (Meta sunset it July 2025; redirects to `huggingface.co/papers`). Removed the PwC "official" badge from the verification rubric and search fan-out; replaced with the HF paper page (`huggingface.co/papers/<arxiv-id>`) repo links, and pointed at the static `paperswithcode-data` GitHub dump for historical models.
+
+### Added — model-provenance skill
+
+- `scripts/extract_key_code.py` — records the source commit in `MANIFEST.md` (read from `.git/HEAD`, no git execution) and caps capture at `--max-per-category` (default 50) files, listing overflow in the manifest instead of copying config explosions.
+- `SKILL.md` — new step 8 "Verify the archive" (PDF magic-byte check with re-fetch remedy, key_code completeness, commit-pin consistency between `MANIFEST.md` and `SOURCES.md`, memory registration) before the final report.
+- Gap fixes from subagent pressure-testing: `scripts/` paths declared relative to the skill directory; predecessor-paper stopping rule (1–3 max, primary-only when unsure); minor-revision rule (SAM 2.1 stays in the SAM 2 archive; new generation = new archive).
+
+### Changed — model-provenance skill
+
+- `SKILL.md` frontmatter description rewritten to triggering conditions only (was a full workflow summary, which per skill-authoring CSO guidance tempts agents to act on the description without reading the body). Verified with a 7-scenario trigger test.
+
 ## [0.4.0] - 2026-06-09
 
 ### Added — model-provenance skill

@@ -26,7 +26,7 @@ import urllib.error
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-ARXIV_API = "http://export.arxiv.org/api/query?id_list="
+ARXIV_API = "https://export.arxiv.org/api/query?id_list="
 UA = "model-provenance-skill/1.0 (research archival)"
 
 

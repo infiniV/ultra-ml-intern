@@ -9,7 +9,8 @@ that lists every captured file, its category, and why it was picked. Nothing is
 executed; this only reads and copies text files.
 
 Usage:
-    extract_key_code.py <cloned-repo-dir> --out <key_code-dir> [--max-bytes N]
+    extract_key_code.py <cloned-repo-dir> --out <key_code-dir>
+                        [--max-bytes N] [--max-per-category N]
 
 Example:
     extract_key_code.py research/models/dinov3/code/dinov3 \
@@ -31,31 +32,57 @@ PATTERNS = [
      r"optimizer\.step|loss\.backward|training_step|def train\b|accelerator\.|\.fit\("),
     ("model", r"(^|/)(model|models|modeling|architecture|backbone|network|net|vit|encoder|decoder)[\w-]*\.py$",
      r"class \w+\((nn\.Module|tf\.keras|torch\.nn|Module)\)|def forward\("),
-    ("inference", r"(^|/)(infer|inference|predict|demo|run|generate|eval|evaluate|sample|test_time)[\w-]*\.py$",
+    ("inference", r"(^|/)(infer|inference|predict|transcribe|demo|run|generate|eval|evaluate|sample|test_time)[\w-]*\.py$",
      r"@torch\.no_grad|model\.eval\(\)|\.predict\(|def (infer|inference|predict|generate)\b"),
     ("loss", r"(^|/)(loss|losses|criterion|objective)[\w-]*\.py$", None),
     ("data", r"(^|/)(dataset|datasets|data|dataloader|augment|transform)[\w-]*\.py$",
      r"class \w*Dataset|DataLoader|__getitem__"),
-    ("config", r"(^|/)(config|configs|default[\w-]*)\.(ya?ml|json|py)$|\.gin$", None),
+    ("config", r"(^|/)(config|configs|default[\w-]*)\.(ya?ml|json|py)$|\.gin$"
+               r"|(^|/)configs?/.+\.(ya?ml|json|py)$", None),
     ("entry", r"(^|/)(main|__main__|cli|app)\.py$", None),
     ("readme", r"(^|/)README(\.md|\.rst|\.txt)?$", None),
     ("deps", r"(^|/)(requirements[\w-]*\.txt|environment\.ya?ml|pyproject\.toml|setup\.py|setup\.cfg|Pipfile)$", None),
 ]
 
 SKIP_DIRS = {".git", "__pycache__", "node_modules", ".github", "tests", "test",
-             "docs", "examples/notebooks", ".idea", ".vscode", "build", "dist"}
+             "docs", "notebooks", ".idea", ".vscode", "build", "dist"}
+# multi-component prefixes, matched against the file's repo-relative posix path
+SKIP_PREFIXES = ("examples/notebooks/",)
 TEXT_EXT = {".py", ".yaml", ".yml", ".json", ".toml", ".cfg", ".txt", ".md",
             ".rst", ".gin", ".sh"}
 
 
 def categorize(rel: str, content: str | None) -> str | None:
-    for cat, name_rx, sig_rx in PATTERNS:
+    # Filename matches win over content signals across ALL categories: a
+    # model.py that happens to contain optimizer.step() (e.g. a Lightning
+    # module) is still a model file, not a training loop.
+    for cat, name_rx, _ in PATTERNS:
         if re.search(name_rx, rel, re.IGNORECASE):
             return cat
-        if sig_rx and content and re.search(sig_rx, content):
-            # content signal only promotes .py files to avoid false hits
-            if rel.endswith(".py"):
-                return cat
+    for cat, _, sig_rx in PATTERNS:
+        # content signal only promotes .py files to avoid false hits
+        if sig_rx and content and rel.endswith(".py") and re.search(sig_rx, content):
+            return cat
+    return None
+
+
+def repo_commit(repo: Path) -> str | None:
+    """Best-effort HEAD sha by reading .git files (no git execution)."""
+    head = repo / ".git" / "HEAD"
+    try:
+        ref = head.read_text().strip()
+        if not ref.startswith("ref: "):
+            return ref or None
+        ref = ref[5:]
+        ref_file = repo / ".git" / ref
+        if ref_file.is_file():
+            return ref_file.read_text().strip()
+        packed = repo / ".git" / "packed-refs"
+        for line in packed.read_text().splitlines():
+            if line.endswith(" " + ref):
+                return line.split(" ", 1)[0]
+    except OSError:
+        pass
     return None
 
 
@@ -65,6 +92,9 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="key_code output directory")
     ap.add_argument("--max-bytes", type=int, default=400_000,
                     help="skip text files larger than this (default 400KB)")
+    ap.add_argument("--max-per-category", type=int, default=50,
+                    help="cap captured files per category (default 50); "
+                         "overflow is listed in MANIFEST.md but not copied")
     args = ap.parse_args()
 
     repo = Path(args.repo).resolve()
@@ -74,12 +104,14 @@ def main() -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    captured: list[tuple[str, str]] = []  # (category, relpath)
+    matched: dict[str, list[str]] = {}  # category -> sorted relpaths
     for path in sorted(repo.rglob("*")):
         if not path.is_file():
             continue
         rel = path.relative_to(repo).as_posix()
         if any(part in SKIP_DIRS for part in path.relative_to(repo).parts[:-1]):
+            continue
+        if rel.startswith(SKIP_PREFIXES):
             continue
         if path.suffix.lower() not in TEXT_EXT:
             continue
@@ -92,21 +124,40 @@ def main() -> int:
         cat = categorize(rel, content)
         if not cat:
             continue
-        dest = out / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, dest)
-        captured.append((cat, rel))
+        matched.setdefault(cat, []).append(rel)
+
+    captured: list[tuple[str, str]] = []  # (category, relpath)
+    skipped: dict[str, list[str]] = {}    # category -> over-cap relpaths
+    for cat, rels in matched.items():
+        kept, over = rels[:args.max_per_category], rels[args.max_per_category:]
+        if over:
+            skipped[cat] = over
+            print(f"warning: {cat}: capped at {args.max_per_category} files, "
+                  f"{len(over)} more listed in MANIFEST.md but not copied",
+                  file=sys.stderr)
+        for rel in kept:
+            dest = out / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(repo / rel, dest)
+            captured.append((cat, rel))
 
     # Write manifest grouped by category, in PATTERNS order.
     order = [c for c, *_ in PATTERNS]
+    commit = repo_commit(repo)
     lines = ["# Key code manifest", "",
-             f"Source repo: `{repo.name}`  ", f"Files captured: {len(captured)}", ""]
+             f"Source repo: `{repo.name}`  ",
+             f"Source commit: `{commit or 'unknown'}`  ",
+             f"Files captured: {len(captured)}", ""]
     for cat in order:
         items = sorted(r for c, r in captured if c == cat)
         if not items:
             continue
         lines.append(f"## {cat} ({len(items)})")
         lines.extend(f"- `{r}`" for r in items)
+        if cat in skipped:
+            lines.append(f"- …and {len(skipped[cat])} more matched but not "
+                         f"copied (over --max-per-category):")
+            lines.extend(f"  - `{r}` (not copied)" for r in skipped[cat])
         lines.append("")
     (out / "MANIFEST.md").write_text("\n".join(lines))
 

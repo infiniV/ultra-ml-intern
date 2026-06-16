@@ -62,7 +62,7 @@ The skill activates automatically and walks the [6-step research-driven workflow
 | Skill | What it does |
 |---|---|
 | `ml-intern` | The end-to-end ML workflow: find landmark papers, crawl the citation graph, extract the recipe, audit the dataset and base model on Hub, write a TRL-grounded training script, pre-flight, smoke-test, and ship a full `hf jobs run` with Trackio monitoring. Activates whenever you ask to fine-tune, train, evaluate, or audit a model. |
-| `model-provenance` | Given a specific model (DINOv3, SAM 2, Whisper, Qwen2-VL…), finds and verifies the *canonical* repo over forks and lookalikes, clones it, extracts the real train/model/inference files, downloads the paper PDFs with metadata, writes a synthesis report, and archives everything to `research/models/<slug>/`. Registers a mandatory-read memory so future coding against that model is grounded in its actual source, not training-time recall. Cloned code is archived, never executed. |
+| `model-provenance` | Given a specific model (DINOv3, SAM 2, Whisper, Qwen2-VL…), finds and verifies the *canonical* repo over forks and lookalikes, clones it, extracts the real train/model/inference files, downloads the paper PDFs with metadata, writes a synthesis report, and archives everything to a global, project-independent `~/.claude/model-provenance/<slug>/` (reusing any existing archive instead of re-fetching). Registers a mandatory-read memory so future coding against that model is grounded in its actual source, not training-time recall. Cloned code is archived, never executed. |
 
 ## Commands
 
