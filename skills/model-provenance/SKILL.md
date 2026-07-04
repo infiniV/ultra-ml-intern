@@ -49,6 +49,16 @@ re-extract, or re-download artifacts that are already present and valid. Each
 step below states its own skip condition. If the user explicitly asks to
 refresh, delete the relevant subdir(s) first, then re-run those steps.
 
+**Write the archive once, at harvest; never pollute it with usage.** The
+archive captures a model's source *as gathered the first time*. When a later
+session reads it to write code for some experiment, that experiment's working
+notes, results, debugging observations, or "what worked for me in exp-xx" do
+**NOT** get written back into the archive — they belong in the project or the
+chat. The only writes to an existing archive are (a) filling a genuine gap in
+the original harvest (a missing paper, an un-extracted repo) or (b) an explicit
+user-requested refresh. Nothing session- or experiment-specific is ever added,
+and no file under the archive is edited to record how the model was used.
+
 **Safety:** this skill archives code; it never executes cloned repos, installs
 their dependencies, or runs their scripts. Reading and copying only.
 
@@ -123,11 +133,21 @@ with bibtex. Skip any paper whose `.pdf` + `.metadata.json` already exist in
 - **`SOURCES.md`** — the provenance ledger. For every repo: URL, pinned commit,
   canonical|community label, and the one-line evidence for why it's canonical.
   For every paper: title, arXiv id, local filename.
-- **`notes.md`** — read `key_code/` and the paper abstracts and synthesize:
+- **`notes.md`** — read `key_code/` and the papers and synthesize an
   architecture overview, the training recipe (objective, losses, key
-  hyperparameters, data), and a concrete "how to run inference" section with
-  cited file references (`key_code/...:line`). This is the doc future-you reads
-  first. Keep claims grounded in the archived files — cite, don't invent.
+  hyperparameters, data), and a concrete "how to run inference". This is the
+  doc future-you reads first, so hold it to a high bar:
+  - **Every factual claim carries a citation to its source** — a
+    `key_code/<file>:<line>` (line or range) for code, a paper `§section` for a
+    paper claim. A hyperparameter, layer name, loss term, default, or API
+    signature written without a line/section reference does not belong here.
+  - **No claims from memory, no false or aspirational claims.** If the archived
+    source does not state it, do not write it. Anything you cannot verify
+    against a file goes under an explicit `## Unverified` heading, marked as
+    such — never mixed into the grounded sections as if it were confirmed.
+  - It is a **map into the real files, not a replacement** for them: quote and
+    point at exact lines; do not paraphrase from recall. When code and paper
+    disagree, note both with citations rather than picking silently.
 
 ### 7. Register the mandatory-read memory  ← required
 So future sessions ground coding in the real source, write a memory file (see
@@ -141,7 +161,8 @@ the memory instructions in the system prompt) and index it in `MEMORY.md`:
   > **Before writing or reviewing any code involving `<model>`, you MUST read
   > `<abs-path>/notes.md` and the relevant files under `<abs-path>/key_code/`
   > first. Ground all APIs, layer names, and the training recipe in that archived
-  > source — do not rely on memory for this model.**
+  > source — do not rely on memory for this model. The archive is a read-only
+  > reference: never write experiment or usage notes into it.**
 
 - Link related models with `[[model-src-...]]` (e.g. DINOv3 → `[[model-src-dinov2]]`).
 - Add the one-line pointer to `MEMORY.md`:
@@ -162,6 +183,12 @@ Run these checks; fix anything that fails rather than reporting around it:
   `SOURCES.md`;
 - `SOURCES.md` has a pinned commit and one-line canonical evidence for every
   repo in `code/`;
+- `notes.md` claims are cited: spot-check that hyperparameters, layer names, and
+  API signatures carry a `key_code/<file>:<line>` or paper `§` ref, that the
+  cited lines actually say what's claimed, and that anything uncertain sits under
+  `## Unverified` rather than in the grounded sections;
+- the archive contains no experiment/usage notes — only first-harvest source and
+  its factual ledger;
 - the memory file exists and `MEMORY.md` contains its pointer line.
 
 ## Final report to the user

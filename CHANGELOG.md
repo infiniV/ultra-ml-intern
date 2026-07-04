@@ -2,6 +2,14 @@
 
 All notable changes to this plugin are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-07-04
+
+### Changed — model-provenance: keep the archive a pristine first-harvest reference
+
+- **Archive is write-once at harvest; usage never pollutes it.** Added an explicit invariant: when a later session reads the archive to write code for an experiment, that experiment's working notes, results, or "what worked in exp-xx" observations must NOT be written back into `~/.claude/model-provenance/<slug>/`. The only permitted writes to an existing archive are filling a genuine gap in the original harvest or an explicit user-requested refresh. The mandatory-read memory now states the archive is a read-only reference.
+- **Raised the bar on `notes.md` groundedness.** Every factual claim (hyperparameter, layer name, loss term, default, API signature) must carry a `key_code/<file>:<line>` or paper `§section` citation; no claims from memory and no false/aspirational claims; anything unverifiable goes under an explicit `## Unverified` heading instead of being mixed into the grounded sections; code/paper disagreements are cited both ways rather than silently resolved.
+- **Step 8 verification** now spot-checks that `notes.md` claims are cited and that the cited lines say what's claimed, and confirms the archive holds no experiment/usage notes.
+
 ## [0.4.1] - 2026-06-10
 
 ### Changed — model-provenance archive location & idempotency

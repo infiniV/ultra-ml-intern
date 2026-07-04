@@ -1,6 +1,6 @@
 {
   "name": "ml-intern",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "ultra-instinct ML engineering intern for Claude Code. Reads papers, audits datasets, ships SFT/DPO/LoRA runs to Hugging Face. Built on the procedural knowledge from huggingface/ml-intern, wired into Claude Code's native agentic harness.",
   "author": {
     "name": "Raahim Arbaz",
