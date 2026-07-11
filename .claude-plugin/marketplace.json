@@ -8,7 +8,7 @@
       "name": "ml-intern",
       "source": "./",
       "description": "ultra-instinct ML engineering intern for Claude Code. Reads papers, audits datasets, ships SFT/DPO/LoRA runs to Hugging Face. Built on huggingface/ml-intern.",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "category": "development"
     }
   ]

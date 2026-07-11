@@ -26,7 +26,7 @@ model reads the real source instead of guessing.
 
 **Always archive to the global root `~/.claude/model-provenance/<model-slug>/`,
 never inside the current project.** The archive is a machine-wide source of
-truth shared by every project (the memory in step 7 points other repos at this
+truth shared by every project (the memory in step 8 points other repos at this
 absolute path), so it must not live under any one project's working dir and must
 not be committed to a project's git history. Do **not** ask for or accept a
 per-project location; if the user wants a copy in their project, symlink it
@@ -38,8 +38,10 @@ Slugify the exact variant: `DINOv3` → `dinov3`, `SAM 2` → `sam2`.
 ├── code/         # full git clones — canonical repo first, key community repos
 ├── key_code/     # extracted train loop, model def, inference; + MANIFEST.md
 ├── papers/       # <slug>.pdf + <slug>.metadata.json (title/authors/abstract/bibtex)
-├── SOURCES.md    # provenance manifest: every repo+paper, commit pin, WHY canonical
-└── notes.md      # synthesis: architecture, training recipe, hyperparams, how to run
+├── hub/          # per official checkpoint: config/preprocessor/tokenizer/chat-template,
+│                 # model card, revision sha, license+gated status — metadata, never weights
+├── SOURCES.md    # provenance manifest: every repo+paper+checkpoint, commit pin, WHY canonical
+└── notes.md      # synthesis: architecture, recipe, I/O contract, variants, how to run
 ```
 
 **Reuse what's already there.** Before doing any network work, check whether
@@ -65,7 +67,8 @@ their dependencies, or runs their scripts. Reading and copying only.
 ## Workflow
 
 Track these as todos. Steps 1–2 are high-judgment (do them inline / with an
-agent); steps 3–6 are mechanical; steps 7–8 are required, not optional polish.
+agent); steps 3–6 are mechanical; step 7 is the synthesis; steps 8–9 are
+required, not optional polish.
 
 ### 0. Check for an existing archive
 ```bash
@@ -74,7 +77,7 @@ ls -la ~/.claude/model-provenance/<slug>/ 2>/dev/null && \
 ```
 If the archive already exists and `SOURCES.md` covers the canonical repo + the
 papers the user wants, this skill is mostly done: report what's there, run the
-step 8 verification, and only re-enter the steps below for whatever is missing
+step 9 verification, and only re-enter the steps below for whatever is missing
 or stale. A fresh archive starts at step 1.
 
 ### 1. Discover candidates
@@ -96,14 +99,18 @@ which repo is official with evidence. Decide:
 Create the folder layout, then clone into `code/` and **pin the commit**:
 ```bash
 ROOT=~/.claude/model-provenance/<slug>
-mkdir -p "$ROOT"/{code,key_code,papers}
+mkdir -p "$ROOT"/{code,key_code,papers,hub}
 # skip if already cloned (idempotent re-runs)
 [ -d "$ROOT/code/<repo>" ] || git -C "$ROOT/code" clone --depth 1 <canonical-repo-url>
 # record the exact commit for reproducibility
 git -C "$ROOT/code/<repo>" rev-parse HEAD
 ```
-Use `--depth 1` for speed unless the user wants full history. If the repo dir is
-already present, keep it (note its pinned commit) rather than re-cloning.
+Use `--depth 1` for speed unless the user wants full history. If the user named
+a specific revision (e.g. SAM 2.1) and the repo has a matching release tag,
+clone that tag (`--depth 1 --branch <tag>`) instead of bare HEAD — HEAD of an
+active repo may already be past it (see discovery.md, "Version drift"). If the
+repo dir is already present, keep it (note its pinned commit) rather than
+re-cloning.
 
 ### 4. Extract key code
 `scripts/` paths below are relative to **this skill's directory** (the base
@@ -127,20 +134,60 @@ scripts/fetch_paper.py <arxiv-id-or-url> --out "$ROOT/papers"
 Accepts an arXiv id (`2304.07193`), an `/abs/` or `/pdf/` URL, or a direct PDF
 URL (`--name <slug>` to set the filename). Writes the PDF + a metadata sidecar
 with bibtex. Skip any paper whose `.pdf` + `.metadata.json` already exist in
-`papers/` and pass the step 8 `%PDF` check.
+`papers/` and pass the step 9 `%PDF` check.
 
-### 6. Write SOURCES.md and notes.md
+### 6. Capture Hub checkpoint metadata
+The released checkpoint's own config files are the ground truth for *using*
+the model, and they routinely disagree with the paper (input resolution,
+normalization constants, chat template). For each **official** checkpoint the
+user will code against (1–5, from the lab's HF org — the reverse arXiv lookup
+in discovery.md surfaces them):
+```bash
+scripts/fetch_hub_meta.py <org/checkpoint-id> --out "$ROOT/hub"
+```
+Fetches metadata only, never weights: `config.json`,
+`preprocessor_config.json` / `tokenizer_config.json` (incl. chat template),
+`generation_config.json`, the model card, plus `info.json` with the revision
+sha, license, gated status, and the weight-file inventory (names + sizes).
+Gated repos still yield `info.json` + model card; the script reports the
+misses — record them in `SOURCES.md` ("config gated; accept license at <url>
+to fetch"). Skip checkpoints already under `hub/` with an `info.json`.
+
+### 7. Write SOURCES.md and notes.md
 - **`SOURCES.md`** — the provenance ledger. For every repo: URL, pinned commit,
   canonical|community label, and the one-line evidence for why it's canonical.
-  For every paper: title, arXiv id, local filename.
-- **`notes.md`** — read `key_code/` and the papers and synthesize an
-  architecture overview, the training recipe (objective, losses, key
-  hyperparameters, data), and a concrete "how to run inference". This is the
-  doc future-you reads first, so hold it to a high bar:
+  For every paper: title, arXiv id, local filename. For every checkpoint:
+  repo id, revision sha, license, gated status.
+- **`notes.md`** — read `key_code/`, `hub/`, and the papers and synthesize the
+  doc future-you reads first. Required sections:
+  - **Architecture overview** and the **training recipe** (objective, losses,
+    key hyperparameters, data).
+  - **Variant table** — every official checkpoint: HF repo id, params,
+    input size / context length, embedding dim, and which variant the paper's
+    headline numbers used. Hallucinated checkpoint ids are the most common
+    grounding failure; this table is the antidote.
+  - **I/O contract** — input preprocessing (resolution, normalization
+    constants, tokenization / chat template) and output semantics (pooled vs
+    CLS token, shapes, logits vs embeddings), cited to `hub/` configs or
+    `key_code/`. Where paper and shipped checkpoint disagree, the `hub/`
+    config wins for inference — cite both.
+  - **Versions & license** — minimum library versions the model class needs
+    (e.g. which `transformers` release added it), the license, and gated
+    status (a future session must know before writing a download that 401s).
+  - **How to run inference** — concrete, grounded in the model card snippet
+    or a `key_code/` entrypoint.
+  - **Reference numbers** — 1–2 benchmark figures from the paper/model card a
+    future session can sanity-check its integration against.
+  - Optionally **Gotchas** (≤5 bullets) — known pitfalls from the repo's
+    pinned/top issues or paper-vs-code mismatches, each cited to an issue URL
+    or file:line.
+
+  Hold every section to this bar:
   - **Every factual claim carries a citation to its source** — a
-    `key_code/<file>:<line>` (line or range) for code, a paper `§section` for a
-    paper claim. A hyperparameter, layer name, loss term, default, or API
-    signature written without a line/section reference does not belong here.
+    `key_code/<file>:<line>` (line or range) or `hub/<checkpoint>/<file>` for
+    code/config, a paper `§section` for a paper claim. A hyperparameter, layer
+    name, loss term, default, or API signature written without a line/section
+    reference does not belong here.
   - **No claims from memory, no false or aspirational claims.** If the archived
     source does not state it, do not write it. Anything you cannot verify
     against a file goes under an explicit `## Unverified` heading, marked as
@@ -149,7 +196,7 @@ with bibtex. Skip any paper whose `.pdf` + `.metadata.json` already exist in
     point at exact lines; do not paraphrase from recall. When code and paper
     disagree, note both with citations rather than picking silently.
 
-### 7. Register the mandatory-read memory  ← required
+### 8. Register the mandatory-read memory  ← required
 So future sessions ground coding in the real source, write a memory file (see
 the memory instructions in the system prompt) and index it in `MEMORY.md`:
 
@@ -160,8 +207,9 @@ the memory instructions in the system prompt) and index it in `MEMORY.md`:
 
   > **Before writing or reviewing any code involving `<model>`, you MUST read
   > `<abs-path>/notes.md` and the relevant files under `<abs-path>/key_code/`
-  > first. Ground all APIs, layer names, and the training recipe in that archived
-  > source — do not rely on memory for this model. The archive is a read-only
+  > and `<abs-path>/hub/` first. Ground all APIs, layer names, checkpoint ids,
+  > preprocessing constants, and the training recipe in that archived source —
+  > do not rely on memory for this model. The archive is a read-only
   > reference: never write experiment or usage notes into it.**
 
 - Link related models with `[[model-src-...]]` (e.g. DINOv3 → `[[model-src-dinov2]]`).
@@ -171,7 +219,7 @@ the memory instructions in the system prompt) and index it in `MEMORY.md`:
 This is what makes the archive *binding*: the pointer loads every session, and
 the memory's recall makes reading the real code mandatory rather than optional.
 
-### 8. Verify the archive  ← before reporting
+### 9. Verify the archive  ← before reporting
 Run these checks; fix anything that fails rather than reporting around it:
 - every `papers/*.pdf` starts with `%PDF` (`head -c4`) and has a matching
   `.metadata.json` sidecar. If a PDF fails the check (HTML error page), delete
@@ -182,17 +230,24 @@ Run these checks; fix anything that fails rather than reporting around it:
   inference file, and `MANIFEST.md`'s source commit matches the pin in
   `SOURCES.md`;
 - `SOURCES.md` has a pinned commit and one-line canonical evidence for every
-  repo in `code/`;
-- `notes.md` claims are cited: spot-check that hyperparameters, layer names, and
-  API signatures carry a `key_code/<file>:<line>` or paper `§` ref, that the
-  cited lines actually say what's claimed, and that anything uncertain sits under
-  `## Unverified` rather than in the grounded sections;
+  repo in `code/`, and a repo id + revision sha + license/gated status for
+  every checkpoint in `hub/`;
+- `hub/` holds an `info.json` for at least the primary official checkpoint (or
+  `SOURCES.md` records why none exists), and every non-gated checkpoint's
+  `config.json` parses as JSON;
+- `notes.md` has the required sections (variant table, I/O contract,
+  versions & license, reference numbers) and its claims are cited: spot-check
+  that hyperparameters, layer names, and API signatures carry a
+  `key_code/<file>:<line>`, `hub/<checkpoint>/<file>`, or paper `§` ref, that
+  the cited lines actually say what's claimed, and that anything uncertain sits
+  under `## Unverified` rather than in the grounded sections;
 - the archive contains no experiment/usage notes — only first-harvest source and
   its factual ledger;
 - the memory file exists and `MEMORY.md` contains its pointer line.
 
 ## Final report to the user
 State where the archive lives, the canonical repo + pinned commit, what was
-extracted, the papers saved, and that the mandatory-read memory is registered.
+extracted, the papers saved, the checkpoints captured (with license/gated
+notes), and that the mandatory-read memory is registered.
 Flag anything uncertain (e.g. "could not find official training code; archived
 the most-trusted community impl").

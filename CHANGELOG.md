@@ -2,6 +2,62 @@
 
 All notable changes to this plugin are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-07-11
+
+### Added — model-provenance: capture the checkpoint usage contract, not just the code
+
+The archive grounded *how the model was built* but not *the contract for using
+it* — and the released checkpoint routinely disagrees with the paper (input
+resolution, normalization constants, chat template), which is where most
+grounding failures actually happen.
+
+- **New `hub/` archive directory + `scripts/fetch_hub_meta.py`.** Per official
+  checkpoint, fetches metadata only, never weights: `config.json`,
+  `preprocessor_config.json` / `tokenizer_config.json` (incl. chat template),
+  `generation_config.json`, the model card, plus `info.json` with revision sha,
+  license, gated status, linked arXiv ids, and the weight-file inventory
+  (names + sizes). Gated repos degrade gracefully (info + model card still
+  captured, misses reported for SOURCES.md). Live-tested against a non-gated
+  vision model, a chat-template LLM, and a gated repo.
+- **New required `notes.md` sections**: variant table (official checkpoint HF
+  repo ids — the antidote to hallucinated ids), I/O contract (preprocessing +
+  output semantics; hub config wins over the paper for inference), versions &
+  license (min library version, gated status), reference benchmark numbers,
+  and an optional capped Gotchas list cited to issue URLs.
+- `hub/<checkpoint>/<file>` is now a citable source in notes.md; SOURCES.md
+  records repo id + revision sha + license/gated per checkpoint; step 9
+  verification checks hub coverage, config parseability, and the new sections;
+  the mandatory-read memory now also points at `hub/`.
+- Workflow renumbered: hub capture is step 6; SOURCES/notes 7, memory 8,
+  verify 9.
+
+## [0.5.1] - 2026-07-11
+
+### Changed — model-provenance: sharper discovery, exact-revision pinning
+
+- **Name-first GitHub search.** The documented `in:name,description,readme`
+  query is noisy in practice (live test: a dinov3 search ranked timm and
+  transformers.js above `facebookresearch/dinov3`, and surfaced dinov2) —
+  discovery.md now starts with `in:name sort:stars` and only broadens if that
+  comes up dry.
+- **New rubric signal: reverse arXiv-to-HF lookup.**
+  `huggingface.co/api/models?filter=arxiv:<id>` confirms the paper-to-org tie
+  independent of GitHub search noise (verified live: DINOv2's paper id maps to
+  `facebook/dinov2-*`).
+- **Tag-aware clone pinning.** When the user names a specific revision
+  (e.g. SAM 2.1), check `gh api repos/<o>/<r>/tags` and clone the matching tag
+  instead of bare HEAD — HEAD of an active repo may already be past the
+  revision asked for. Added to SKILL.md step 3 and the version-drift trap.
+
+### Fixed — model-provenance docs
+
+- Script docstring examples still showed the pre-0.4.1 per-project
+  `research/models/...` paths; both now use `~/.claude/model-provenance/...`.
+- Dropped discovery.md's table of contents (4 lines of nav for an 80-line file).
+- Audit note: both scripts passed a fresh live/fixture regression
+  (fetch_paper.py end-to-end against arXiv incl. `%PDF` + bibtex sidecar;
+  extract_key_code.py category/skip/commit-pin fixture) — no code bugs found.
+
 ## [0.5.0] - 2026-07-11
 
 ### Fixed — research pipeline accuracy (found by live-API audit)

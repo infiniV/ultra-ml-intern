@@ -11,7 +11,7 @@ Usage:
     fetch_paper.py <arxiv-id|arxiv-url|pdf-url> --out <papers-dir> [--name <slug>]
 
 Examples:
-    fetch_paper.py 2304.07193 --out research/models/dinov2/papers
+    fetch_paper.py 2304.07193 --out ~/.claude/model-provenance/dinov2/papers
     fetch_paper.py https://arxiv.org/abs/2508.10104 --out papers
     fetch_paper.py https://example.com/paper.pdf --out papers --name some-paper
 

@@ -13,8 +13,8 @@ Usage:
                         [--max-bytes N] [--max-per-category N]
 
 Example:
-    extract_key_code.py research/models/dinov3/code/dinov3 \
-        --out research/models/dinov3/key_code
+    extract_key_code.py ~/.claude/model-provenance/dinov3/code/dinov3 \
+        --out ~/.claude/model-provenance/dinov3/key_code
 
 Categories are matched by filename and by lightweight content signals (e.g. a
 file containing `def training_step` or `optimizer.step()` counts as training even
