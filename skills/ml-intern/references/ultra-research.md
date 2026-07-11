@@ -13,39 +13,15 @@ Use this when:
 Do NOT use this for:
 
 - "Just give me a working recipe for SFT on dataset X" — `/ml-research` is faster
-- A topic where you already have the anchor paper and just need its hyperparameters — read it directly via `crawl_arxiv.sh --info` + ar5iv
+- A topic where you already have the anchor paper and just need its hyperparameters — read it directly via `crawl_arxiv.sh --info` + arXiv HTML
 
-## Why this is harder than HF's papers_tool.py
+## Architecture
 
-Upstream HF `ml-intern/agent/tools/papers_tool.py` exposes citation_graph as a **single-hop, single-paper** call. Their separate `research_tool.py` wraps a single research subagent (60-iteration cap, 170k soft / 190k hard token budget, downgrades to Sonnet for cost) — one subagent for the whole research task, not one per paper. Both upstream tools push full paper text into the calling agent's context, which forces shallow reads to stay under budget.
-
-Our advantage: per-paper subagent isolation. Each `ml-paper-reader` dispatch is its own context window. We can read 50 papers without the main thread ever exceeding ~50–80k tokens of digests. The trade: subagent dispatches are not free and rate-limited APIs (S2, HF) bottleneck wall-clock. Wave-based dispatch (5–10 readers at a time) keeps you under throttles.
-
-## Upstream tool parity
-
-For each upstream operation in `huggingface/ml-intern/agent/tools/`, here is the local equivalent. Use this table to pick the right helper instead of inventing your own curl invocations.
-
-| Upstream operation (`agent/tools/`) | Our local script | Notes |
-|---|---|---|
-| `papers_tool._op_search` | `crawl_arxiv.sh "query"` | HF Papers default; routes to S2 bulk when filters present |
-| `papers_tool._op_paper_details` | `crawl_arxiv.sh --info <id>` | metadata + S2 tldr |
-| `papers_tool._op_read_paper` (sections) | `WebFetch https://ar5iv.labs.arxiv.org/html/<id>` (in `ml-paper-reader`) | section-level reading lives inside the reader subagent, not as a separate script |
-| `papers_tool._op_citation_graph` | `crawl_arxiv.sh --cited-by <id>` + `crawl_arxiv.sh --refs <id>` | upstream is single-hop; our BFS in Phase 3 chains these to 2 hops |
-| `papers_tool._op_snippet_search` | `snippet_search.sh "claim"` | full-text passage search; needs `S2_API_KEY` |
-| `papers_tool._op_recommend` | `recommend_papers.sh <id>` | sparse-graph backfill |
-| `papers_tool._op_find_datasets/_models/_collections/_find_all_resources` | `hf_paper_meta.sh <id> [--datasets\|--models\|--collections\|--all]` | sorted by downloads |
-| `papers_tool._op_trending` | (no local wrapper) | call HF Hub `/api/daily_papers` directly via curl if you need this; ultra-research rarely does |
-| `dataset_tools` | `inspect_dataset.sh <org/name>` | schema + sample rows + format check |
-| `web_search_tool` | Claude Code's built-in `WebSearch` tool | upstream uses DuckDuckGo HTML scrape; we use the harness-native search |
-| `github_find_examples` / `github_read_file` | `gh search code` + `gh api repos/...` via Bash | covered by `gh` CLI |
-| `docs_tools` (explore_hf_docs / fetch_hf_docs / find_hf_api) | HF MCP server (`.mcp.json`) | activates when `HF_TOKEN` is set |
-| `research_tool` (subagent orchestrator) | `/ml-research-ultra` itself (this command) | their architecture: one subagent, capped iterations. Ours: per-paper subagents in parallel waves |
-
-Net: every operation we'd need from upstream is either (a) wrapped as a local script in `skills/ml-intern/scripts/`, (b) covered by Claude Code's built-in tools (`WebSearch`, `WebFetch`, `Bash`+`gh`), or (c) covered by the HF MCP server. There is no upstream tool that the ultra-research workflow needs and cannot reach.
+Per-paper subagent isolation is the design: each `ml-paper-reader` dispatch is its own context window, so 50 papers can be read while the main thread only ever holds ~50–80k tokens of digests. The trade is wall-clock — rate-limited APIs (S2, ar5iv) bottleneck the run, so readers go out in waves of 5–10. Every operation you need is wrapped in `skills/ml-intern/scripts/` (see `paper-crawl.md` for the script table + endpoints); don't invent your own curl invocations.
 
 ## Helper scripts unique to ultra-research
 
-Beyond the parity helpers above, ultra-research adds three orchestration helpers:
+Beyond the crawl scripts in `paper-crawl.md`, ultra-research adds three orchestration helpers:
 
 | Script | Purpose |
 |---|---|
@@ -89,12 +65,13 @@ For each angle, run `crawl_arxiv.sh` with two filter profiles in parallel:
 ```bash
 # High-citation lane (well-established work)
 ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh \
-    "<angle>" --min-cites 30 --sort citationCount --limit 10
+    "<angle>" --min-cites 30 --sort citationCount:desc --limit 10
 
-# Recency lane (last 12 months, lower bar)
+# Recency lane (last 12 months, lower bar) — this is where current SOTA lives;
+# never skip it, citation counts structurally favor stale work
 ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh \
     "<angle>" --date-from $(date -d '12 months ago' +%Y-%m-%d) \
-    --min-cites 5 --sort publicationDate --limit 10
+    --min-cites 5 --sort publicationDate:desc --limit 10
 ```
 
 Run all queries in **parallel Bash calls** (one tool-call message containing many `Bash` invocations). Sleep between calls is handled by `crawl_arxiv.sh` internally; if you see HTTP 429s, drop to single-lane and re-run.
@@ -170,7 +147,7 @@ Dispatch the `ml-paper-reader` subagent **once per paper**, in **waves of 5–10
 - A 1–3 sentence topic context (THE SAME context for every reader — reproducibility matters here)
 - Optionally 1–2 specific questions if Phase 4 flagged the paper as answering a known gap
 
-**Model selection.** The Phase 0 question 3 captured a model choice — pass it as `model: "<choice>"` on every `Agent` dispatch (`sonnet` / `opus` / `haiku`). Readers do structured digest extraction with a fixed output schema, so Sonnet 4.6 is the right default; Opus is a ~5× cost premium for marginal quality on this kind of work and only worth it for proposal/paper-grade output. The orchestrator (this main thread) keeps its own model regardless — only the leaf readers switch. The pattern follows `superpowers:dispatching-parallel-agents`: focused scope, identical output contract, dispatched in parallel.
+**Model selection.** The Phase 0 model question captured a reader-model choice — pass it as `model: "<choice>"` on every `Agent` dispatch (`sonnet` / `opus`). Readers do structured digest extraction with a fixed output schema, so Sonnet is the right default; Opus is a cost premium only worth it for proposal/paper-grade output. The orchestrator (this main thread) keeps its own model regardless — only the leaf readers switch. The pattern follows `superpowers:dispatching-parallel-agents`: focused scope, identical output contract, dispatched in parallel.
 
 Each reader returns the digest format defined in `agents/ml-paper-reader.md`. **Don't re-prompt readers** that come back with `Confidence: LOW` — that's a real data point about what the literature does and doesn't say.
 
@@ -190,7 +167,7 @@ ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/merge_papers.sh \
 
 The script is cache-friendly (skip-if-exists), so re-running the workflow is cheap. Default format is `both` (PDF + HTML); offer `--format pdf` if the user only wants printable archive copies, or `--format html` if disk space is tight (HTML is ~10× smaller than PDF for most papers).
 
-The reader subagent does NOT use the local files — it always fetches fresh ar5iv HTML so you get the canonical version. Local copies are purely for the user's offline review and audit trail.
+The reader subagent does NOT use the local files — it always fetches fresh arXiv HTML so you get the canonical version. Local copies are purely for the user's offline review and audit trail.
 
 ## Phase 6 — Cross-paper synthesis
 
@@ -203,8 +180,8 @@ This is the payoff. Build a **method × dataset × result matrix** from the dige
 
 Then run these **synthesis lenses** in order:
 
-1. **Recipe consensus**: which (method, dataset, hyperparam) combinations appear in ≥ 3 papers and consistently win? That's the "boring SOTA" — your safe recipe.
-2. **Recipe contradictions**: any (method, dataset) where Paper A reports +X% and Paper B reports −Y%? Quote both. Those are real research questions.
+1. **Recipe consensus**: which (method, dataset, hyperparam) combinations appear in ≥ 3 papers and consistently win? That's the "boring SOTA" — your safe recipe. Order the evidence chronologically per benchmark: SOTA is a timestamped claim, so the consensus recipe must be the one no *later* paper in the read set beats, not the most-cited one. State its as-of date.
+2. **Recipe contradictions**: any (method, dataset) where Paper A reports +X% and Paper B reports −Y%? Quote both. Before calling it a research question, check the mundane explanation first — different eval harness, prompting, base model, or data scale makes cross-paper absolute numbers only approximately comparable. Within-paper deltas over shared baselines are the trustworthy signal; a "contradiction" that survives that filter is real.
 3. **Gaps in the matrix**: for each method, which datasets has nobody combined with it? For each dataset, which method has nobody tried? These are the "unexplored cells" — direct candidates for advancing the topic.
 4. **Stated-but-unsolved**: collect every digest's `Open questions / future work` section. Cluster by theme. Themes that appear across 3+ papers are the field's open problems.
 5. **Limitations cluster**: same exercise on `Limitations` sections. If 5 papers all say "we did not test on long-context", that's a real shared weakness.
@@ -289,7 +266,7 @@ A 200k-token main context handles this with margin. If you're on a 1M-token mode
 | Failure | Mitigation |
 |---|---|
 | S2 throttles to 429 mid-BFS | Drop to single-lane queries; sleep 5s between; set `S2_API_KEY` if available |
-| ar5iv 404 on a paper | Reader falls back to arxiv.org/html, then HF Papers AI summary; reports `Confidence: LOW` |
+| arXiv HTML 404 on a paper | Reader falls back to ar5iv, then HF Papers AI summary; reports `Confidence: LOW` |
 | Reader returns garbled output | Re-dispatch ONCE with the same input; if still bad, mark UNREADABLE and proceed |
 | Topic is too narrow (< 10 seed papers) | Skip Phase 1 lane 1 (high-cite), keep recency lane only; backfill with recommend_papers.sh |
 | Topic is too broad (> 200 seed candidates) | Tighten angle list to 4 angles; raise --min-cites to 50; cap read set at 30 |

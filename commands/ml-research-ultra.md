@@ -27,7 +27,7 @@ If you're not sure which they want, ask. Ultra is 10–30× the wall-clock and d
 
 Unlike `/ml-research`, this command does **not** delegate the entire workflow to one subagent. You drive the 7 phases yourself, dispatching `ml-paper-reader` subagents in parallel for the leaf work. Subagent isolation is the whole point — keep paper HTML out of your context.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/references/ultra-research.md` for the full procedure (including the **upstream-tool parity table**, which maps every `huggingface/ml-intern/agent/tools/` operation to its local equivalent so you don't reinvent curl invocations). Below is the operational checklist.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/references/ultra-research.md` for the full procedure (scoring formulas, synthesis lenses, report template, failure modes). Below is the operational checklist.
 
 ### Helper scripts you will use
 
@@ -60,7 +60,7 @@ Surface the angle list and topic-context to the user in 5–8 lines and ask **th
 
 1. "Proceed with these <N> angles?" — yes / edit / abort
 2. "Save papers to a local archive (`./papers/<arxiv>.{pdf,html}`)? Useful for offline review or audit." — `no` (default) / `pdf` / `html` / `both`
-3. "Which model should the paper-reader subagents use?" — `sonnet` (Sonnet 4.6, **recommended** — fast, cheap, sufficient for structured digest extraction) / `opus` (Opus 4.7 — max quality, ~5× cost, use for proposal/paper-grade output) / `haiku` (Haiku 4.5 — budget, only for well-trodden topics where you trust the consensus)
+3. "Which model should the paper-reader subagents use?" — `sonnet` (**recommended** — fast, cheap, sufficient for structured digest extraction) / `opus` (max quality at a cost premium, use for proposal/paper-grade output)
 
 Record both the archive choice (controls Phase 5 archive behavior) **and** the reader-model choice (passed as `model:` on every Phase 5 `Agent` dispatch). The orchestrator — you — keeps its own model regardless; only the leaf readers switch.
 
@@ -70,12 +70,14 @@ For each confirmed angle, dispatch **two** queries (high-cite lane + recency lan
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh \
-  "<angle>" --min-cites 30 --sort citationCount --limit 10
+  "<angle>" --min-cites 30 --sort citationCount:desc --limit 10
 
 ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh \
   "<angle>" --date-from <YYYY-MM-DD ≈12mo ago> --min-cites 5 \
-  --sort publicationDate --limit 10
+  --sort publicationDate:desc --limit 10
 ```
+
+The recency lane is where current SOTA lives — citation counts structurally favor stale work; never run the high-cite lane alone.
 
 Batch all queries into ONE message with many `Bash` invocations. If you see HTTP 429 on more than 2 queries, halve the parallelism and retry the failures.
 
@@ -134,11 +136,11 @@ printf '%s\n' "${READ_LIST_IDS[@]}" \
         --format <pdf|html|both> --dir ./papers
 ```
 
-Skip this step if archive choice was `no`. The reader subagents do NOT use the local files — they always pull fresh ar5iv HTML for the canonical version.
+Skip this step if archive choice was `no`. The reader subagents do NOT use the local files — they always pull fresh arXiv HTML for the canonical version.
 
 For each paper in the read list, dispatch **one** `ml-paper-reader` subagent. Batch into **waves of 5–10** subagents per message. Wait for each wave to complete before launching the next — running 30+ readers concurrently will throttle ar5iv and S2.
 
-Each `Agent` call must specify both `subagent_type: "ml-paper-reader"` **and** `model: "<reader_model_from_phase_0>"` (one of `sonnet` / `opus` / `haiku`). Without an explicit `model`, readers inherit the orchestrator's model and the user's cost choice silently disappears.
+Each `Agent` call must specify both `subagent_type: "ml-paper-reader"` **and** `model: "<reader_model_from_phase_0>"` (`sonnet` or `opus`). Without an explicit `model`, readers inherit the orchestrator's model and the user's cost choice silently disappears.
 
 The prompt to each reader has exactly three parts:
 
@@ -152,17 +154,11 @@ While a wave is in-flight, do nothing in the main thread — the API is the bott
 
 ### Phase 6 — Cross-paper synthesis
 
-You now have 30–50 digests aggregated in your context. Build the synthesis report per `ultra-research.md` Phase 6:
+You now have 30–50 digests aggregated in your context. Build the method × dataset × result matrix, then run the six synthesis lenses exactly as specified in `ultra-research.md` Phase 6 (consensus, contradictions, gaps, open problems, shared limitations, Hub health).
 
-1. **Method × dataset × result matrix** — table over all read papers with cite-able cells
-2. **Recipe consensus** — combinations that appear in ≥3 papers and consistently win
-3. **Recipe contradictions** — same combination, opposite direction of result
-4. **Gaps in the matrix** — unexplored (method, dataset, scale) cells
-5. **Open problems** — themes from `Open questions / future work` sections, ranked by frequency
-6. **Shared limitations** — themes from `Limitations` sections
-7. **Hub artifact health** — for the consensus recipe(s), do linked Hub artifacts still exist with non-trivial download counts?
+Two judgment rules bind every lens: SOTA is a timestamped claim (the consensus recipe is the one no *later* paper beats, stated with its as-of date), and cross-paper absolute numbers are only approximately comparable (rank by within-paper deltas over shared baselines).
 
-This is the section where "find something that can advance the user's current task" lives. Lens 3 (gaps) and Lens 4 (open problems) are the candidates. Each candidate must be backed by ≥1 paper that almost-but-not-quite explored it.
+"Find something that can advance the user's current task" lives in the gaps and open-problems lenses. Each candidate must be backed by ≥1 paper that almost-but-not-quite explored it.
 
 ### Phase 7 — Hallucination scrub
 

@@ -2,6 +2,29 @@
 
 All notable changes to this plugin are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-07-11
+
+### Fixed — research pipeline accuracy (found by live-API audit)
+
+- `scripts/crawl_arxiv.sh` — three real bugs in the S2 bulk-search path:
+  (a) **`--sort citationCount` was an HTTP 400** — S2 bulk requires `field:order`; bare field names are now normalized to `:desc` so every documented invocation works; (b) **`limit` was silently ignored** — the bulk endpoint returns up to 1000 records per page regardless of `limit`, flooding the caller with ~200 rows on a "top 10" query; results are now truncated client-side via jq; (c) **unquoted multi-word queries keyword-matched anything** (a GRPO search returned cardiology and fisheries papers) — multi-word queries are now phrase-quoted automatically, with `--loose` to opt out and pass-through for queries already using S2 boolean syntax.
+- All research docs (`paper-crawl.md`, `ultra-research.md`, both agents, both commands) — replaced every `--sort citationCount` / `--sort publicationDate` example with the working `:desc` form.
+- Paper reading order flipped to **native `arxiv.org/html` first, ar5iv fallback** — native HTML is canonical and current-revision; ar5iv is the pre-2024 fallback.
+- `/ml-research-ultra` Phase 0 reader-model options — dropped stale "Sonnet 4.6 / Opus 4.7" names and removed the haiku option entirely.
+- `/ml-research` — filename slug now computed via the tested `research_slug.sh` instead of prose instructions to hand-derive one.
+
+### Changed — smarter SOTA-finding
+
+- **Dual-lane anchor search** in `/ml-research` and `paper-crawl.md`: classic lane (top-cited) + frontier lane (last 12 months with traction). Citation counts structurally favor stale work — the highest-cited GRPO paper will forever be DeepSeekMath, but the current best recipe lives in its recent citers.
+- **"SOTA is a timestamped claim"** rule threaded through researcher agent, paper-crawl, and ultra synthesis lens 1: a recipe is only current-best if no *later* paper in the read set beats it; the report states the as-of date. New mandatory `**SOTA status:**` line in the `ml-paper-researcher` output contract.
+- **Cross-paper comparability rule**: absolute numbers across papers differ in harness/prompting/contamination; rank recipes by within-paper deltas over shared baselines. Ultra's contradiction lens now checks the mundane explanation before declaring a research question.
+
+### Removed — bloat
+
+- `ultra-research.md` — deleted the "Why this is harder than HF's papers_tool.py" narrative and the 14-row upstream-tool parity table (~600 words of provenance trivia), replaced by a 4-line Architecture note.
+- `/ml-research-ultra` — Phase 6 no longer duplicates (with drifted numbering) the synthesis-lens list from `ultra-research.md`; it now points at the single authoritative copy.
+- `ml-paper-researcher` — dropped the "follow paper-crawl.md exactly" indirection; the agent is self-contained and reads the reference only for endpoint details.
+
 ## [0.4.2] - 2026-07-04
 
 ### Changed — model-provenance: keep the archive a pristine first-harvest reference

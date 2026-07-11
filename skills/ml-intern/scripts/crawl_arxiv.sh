@@ -5,14 +5,19 @@
 # Usage:
 #   crawl_arxiv.sh "search query"                                    # ML-tuned search via HF Papers
 #   crawl_arxiv.sh "query" --date-from 2024-01-01 --min-cites 10     # filtered → S2 bulk search
-#   crawl_arxiv.sh "query" --field "Computer Science" --sort citationCount
+#   crawl_arxiv.sh "query" --field "Computer Science" --sort citationCount:desc
 #   crawl_arxiv.sh --cited-by 2402.03300 [--limit N]                 # downstream citers (with influence + intents)
 #   crawl_arxiv.sh --refs    2402.03300 [--limit N]                  # references (papers this one cites)
 #   crawl_arxiv.sh --info    2402.03300                              # paper metadata
 #
 # Filters (search only): --date-from YYYY-MM-DD  --date-to YYYY-MM-DD
 #                        --field "Computer Science"  --min-cites N
-#                        --sort relevance|citationCount|year|publicationDate
+#                        --sort citationCount|publicationDate|paperId  (desc by default; use field:asc to flip)
+#                        --loose  (disable automatic phrase-quoting of multi-word queries)
+#
+# Multi-word filtered queries are phrase-quoted automatically ("group relative
+# policy optimization" matches the phrase, not any-keyword soup). Pass --loose
+# for keyword matching, or use S2 boolean syntax yourself (quotes, |, +, -).
 #
 # Auth (optional): set S2_API_KEY env var for higher Semantic Scholar rate limits.
 #
@@ -35,6 +40,7 @@ DATE_TO=""
 FIELD=""
 MIN_CITES=""
 SORT=""
+LOOSE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -47,8 +53,9 @@ while [[ $# -gt 0 ]]; do
         --field)     FIELD="$2";              shift 2 ;;
         --min-cites) MIN_CITES="$2";          shift 2 ;;
         --sort)      SORT="$2";               shift 2 ;;
+        --loose)     LOOSE=1;                 shift ;;
         -h|--help)
-            sed -n '2,19p' "$0" | sed 's/^# \?//'
+            sed -n '2,24p' "$0" | sed 's/^# \?//'
             exit 0 ;;
         *)  if [[ "$MODE" == "search" && -z "$ARG" ]]; then ARG="$1"; shift
             else echo "Unknown arg: $1" >&2; exit 1
@@ -66,18 +73,28 @@ UA="ml-intern-skill/0.1"
 AUTH=()
 [[ -n "${S2_API_KEY:-}" ]] && AUTH=(-H "x-api-key: $S2_API_KEY")
 
+# S2 bulk sort must be field:order — bare "citationCount" is an HTTP 400
+[[ -n "$SORT" && "$SORT" != *:* ]] && SORT="${SORT}:desc"
+
 case "$MODE" in
     search)
-        Q=$(printf %s "$ARG" | jq -sRr @uri)
         if [[ -n "$DATE_FROM$DATE_TO$FIELD$MIN_CITES$SORT" ]]; then
-            # Filtered search → Semantic Scholar bulk endpoint
-            URL="$BASE/paper/search/bulk?query=$Q&limit=$LIMIT&fields=title,year,citationCount,abstract,externalIds"
+            # Filtered search → Semantic Scholar bulk endpoint.
+            # Bulk matches keywords anywhere unless phrase-quoted; multi-word
+            # queries get quoted so a GRPO search doesn't return cardiology.
+            QRAW="$ARG"
+            if [[ $LOOSE -eq 0 && "$QRAW" == *" "* && "$QRAW" != *[\"\|\+\~\(]* ]]; then
+                QRAW="\"$QRAW\""
+            fi
+            Q=$(printf %s "$QRAW" | jq -sRr @uri)
+            URL="$BASE/paper/search/bulk?query=$Q&fields=title,year,citationCount,abstract,externalIds"
             [[ -n "$FIELD" ]]             && URL="$URL&fieldsOfStudy=$(printf %s "$FIELD" | jq -sRr @uri)"
             [[ -n "$MIN_CITES" ]]         && URL="$URL&minCitationCount=$MIN_CITES"
             [[ -n "$DATE_FROM$DATE_TO" ]] && URL="$URL&publicationDateOrYear=${DATE_FROM:-}:${DATE_TO:-}"
             [[ -n "$SORT" ]]              && URL="$URL&sort=$SORT"
+            # Bulk ignores `limit` (returns up to 1000/page) — truncate locally
             curl -fsSL -H "User-Agent: $UA" "${AUTH[@]}" "$URL" \
-                | jq -r '.data[]? | {
+                | jq -r --argjson lim "$LIMIT" '.data[:$lim][]? | {
                     title,
                     year,
                     citations: .citationCount,
@@ -86,6 +103,7 @@ case "$MODE" in
                   } | tojson'
         else
             # Default search → HF Papers (ML-tuned, returns trending+relevance mix)
+            Q=$(printf %s "$ARG" | jq -sRr @uri)
             curl -fsSL -H "User-Agent: $UA" \
                 "$HF_API/papers/search?q=$Q&limit=$LIMIT" \
                 | jq -r '.[]? | (.paper // .) | {

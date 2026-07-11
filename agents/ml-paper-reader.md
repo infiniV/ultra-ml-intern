@@ -28,12 +28,12 @@ ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh --info <arxiv_id>
 
 Capture: title, year, citation count, S2 tldr, GitHub repo if linked.
 
-### 2. Fetch the full ar5iv HTML
+### 2. Fetch the full-text HTML
 
-The full text URL is:
+The full text URL is (native arXiv HTML — canonical, current revision):
 
 ```
-https://ar5iv.labs.arxiv.org/html/<arxiv_id>
+https://arxiv.org/html/<arxiv_id>
 ```
 
 Use `WebFetch` once for the **methodology pass** with this prompt (verbatim — do not paraphrase the prompt, only the targets):
@@ -49,7 +49,7 @@ Use `WebFetch` once for the **methodology pass** with this prompt (verbatim — 
 > 8. Author-stated FUTURE WORK / OPEN QUESTIONS: 1–3 verbatim sentences from §conclusion or §future-work.
 > 9. Notable bold CLAIMS: 2–3 verbatim sentences that the authors state strongly (e.g. 'we show that...', 'this is the first...', 'we outperform...')."
 
-If ar5iv returns a 404 or the HTML is empty, fall back to `https://arxiv.org/html/<id>` (newer arXiv-native renderer). If both fail, `WebFetch` `https://huggingface.co/papers/<id>` for the AI summary and explicitly note "(full text not available; digest based on abstract + HF summary)" in your output.
+If that 404s or comes back empty (common for pre-2024 papers), fall back to `https://ar5iv.labs.arxiv.org/html/<id>` (LaTeX-rendered mirror). If both fail, `WebFetch` `https://huggingface.co/papers/<id>` for the AI summary and explicitly note "(full text not available; digest based on abstract + HF summary)" in your output.
 
 ### 3. Optional: targeted second pass
 
@@ -129,7 +129,7 @@ Return EXACTLY this structure. ≤ 1000 words. No preamble. No "as an AI". No re
 - Quotes used: <count>
 - Sections cited: <list, e.g. §1, §3.2, §4.1, §5, §6>
 - Confidence: <HIGH | MEDIUM | LOW>
-  - HIGH: full ar5iv HTML retrieved, all fields filled
+  - HIGH: full paper HTML retrieved, all fields filled
   - MEDIUM: partial HTML, some "(not stated)" fields
   - LOW: only abstract / HF summary available — flag this loudly
 ```

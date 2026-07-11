@@ -10,7 +10,7 @@ The crawl pattern:
 
 1. **Find the anchor paper(s)** for the task domain (highest-cited, most recent, or both).
 2. **Crawl the citation graph DOWNSTREAM** — papers that cite the anchor are the ones that built on it, improved it, or applied it to new domains.
-3. **Read methodology sections (3, 4, 5)** of the most promising downstream papers via the ar5iv HTML version. Extract: dataset (name + size + filtering), training method + config (optimizer, lr, schedule, epochs, batch), and the result those choices produced (benchmark scores).
+3. **Read methodology sections (3, 4, 5)** of the most promising downstream papers via the arXiv HTML version (`arxiv.org/html/<id>`, ar5iv as fallback). Extract: dataset (name + size + filtering), training method + config (optimizer, lr, schedule, epochs, batch), and the result those choices produced (benchmark scores).
 4. **Attribute results to recipes.** Every finding must link a RESULT to the RECIPE that produced it. *"Dataset X + method Y + lr Z → score W on benchmark V"* is useful. *"They used SFT"* is not.
 5. **Validate datasets** via `inspect_dataset.sh` — verify they exist on HF Hub and the column format matches the training method (SFT needs `messages`/`text`; DPO needs `prompt`/`chosen`/`rejected`; GRPO needs `prompt`).
 6. **Find code** via `gh search code` / TRL examples / paper's official repo, only after the recipe is locked.
@@ -20,7 +20,7 @@ The crawl pattern:
 | Script | Purpose |
 |---|---|
 | `crawl_arxiv.sh "query"` | ML-tuned search via HF Papers (default) |
-| `crawl_arxiv.sh "query" --min-cites N --date-from YYYY-MM-DD --field "Computer Science" --sort citationCount` | Filtered search via Semantic Scholar bulk endpoint |
+| `crawl_arxiv.sh "query" --min-cites N --date-from YYYY-MM-DD --field "Computer Science" --sort citationCount:desc` | Filtered search via Semantic Scholar bulk endpoint (multi-word queries are phrase-quoted automatically; `--loose` disables) |
 | `crawl_arxiv.sh --cited-by <id>` | Downstream citers — includes `influential` flag and `intents` (e.g. `["methodology","extension"]`) |
 | `crawl_arxiv.sh --refs <id>` | References (papers this one cited) — same influence/intents fields |
 | `crawl_arxiv.sh --info <id>` | Paper metadata + S2 `tldr` |
@@ -46,23 +46,23 @@ The crawl pattern:
 | `huggingface.co/api/datasets?filter=arxiv:<id>` | linked datasets |
 | `huggingface.co/api/models?filter=arxiv:<id>` | linked models |
 | `huggingface.co/api/collections?paper=<id>` | collections |
-| `ar5iv.labs.arxiv.org/html/<id>` | section-level paper reading via WebFetch |
+| `arxiv.org/html/<id>` (fallback: `ar5iv.labs.arxiv.org/html/<id>`) | section-level paper reading via WebFetch |
 
-## Step 1: Find the landmark
+## Step 1: Find the anchor — two lanes, not one
 
-If the user gave you an arxiv ID, skip to Step 2. Otherwise:
+If the user gave you an arxiv ID, skip to Step 2. Otherwise search BOTH lanes:
 
 ```bash
-# Default: ML-tuned HF Papers search
-${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh "group relative policy optimization"
-
-# Filtered: high-citation, recent, sorted by citation count
+# Classic lane: the highest-cited paper that defined the approach
 ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh \
-  "group relative policy optimization" \
-  --min-cites 20 --date-from 2024-01-01 --sort citationCount --limit 5
+  "<topic>" --min-cites 20 --sort citationCount:desc --limit 5
+
+# Frontier lane: newest work with any traction (last ~12 months)
+${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh \
+  "<topic>" --date-from <12mo-ago> --min-cites 5 --sort publicationDate:desc --limit 10
 ```
 
-Pick the highest-cited recent paper that matches the topic. That's your anchor.
+The classic lane alone anchors you to a paper whose recipe is 1–2 years stale — the highest-cited GRPO paper will forever be DeepSeekMath, but the current best recipe lives in its recent citers. The anchor is the classic-lane winner; the frontier lane is your SOTA-check set for Step 3. (HF Papers default search returns `upvotes` instead of citations — treat upvotes as a trending signal, not a quality ranking.)
 
 ## Step 2: Read the methodology sections
 
@@ -72,10 +72,11 @@ The S2 metadata + `tldr` tells you what they claim:
 ${CLAUDE_PLUGIN_ROOT}/skills/ml-intern/scripts/crawl_arxiv.sh --info 2402.03300
 ```
 
-For the actual recipe, fetch sections 3, 4, 5 from the ar5iv HTML version (much cleaner than PDF):
+For the actual recipe, fetch sections 3, 4, 5 from the HTML version (much cleaner than PDF). Native arXiv HTML first (canonical, current revision), ar5iv as fallback for pre-2024 papers without native HTML:
 
 ```
-https://ar5iv.labs.arxiv.org/html/2402.03300
+https://arxiv.org/html/2402.03300          # primary
+https://ar5iv.labs.arxiv.org/html/2402.03300   # fallback
 ```
 
 Use `WebFetch` with a precise prompt:
@@ -97,7 +98,11 @@ Output now includes `influential` (S2's "isInfluential" flag — paper materiall
 - `influential == true` — built directly on the anchor
 - Title keywords match the task
 
-Top 5 are your follow-up candidates.
+Top 5 (merged with the frontier lane from Step 1) are your follow-up candidates.
+
+**SOTA is a timestamped claim, not a property.** A paper's "state of the art" only means "best as of its submission date". Before recommending any recipe as current-best, check whether a candidate published *after* it reports better numbers on the same benchmark — that's exactly what this downstream crawl is for. If the anchor is >12 months old and no recent citer beats it, say so explicitly ("still unbeaten as of <date>") rather than assuming.
+
+**Cross-paper numbers are rarely comparable.** Two papers reporting on the same benchmark typically differ in eval harness, prompting, sampling, and contamination controls. Rank recipes by *within-paper deltas over shared baselines* (Paper B beats its own reproduction of Paper A's method by +X) — not by comparing absolute numbers across papers. When you must compare across papers, flag it as approximate.
 
 ## Step 4: Hunt specific claims with snippet_search
 
